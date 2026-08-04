@@ -1,0 +1,21 @@
+
+b0 = 1.0 # biomass without fishing
+spr = 0.45 # target spawning potential ratio 
+by0 = 0.0 # biomass when fishing isn't profitable
+y_target = 1.0 # income at target biomass and fishing mortaltiy 
+z = 0.75 # stock recruitment steepness
+σ_R = 0.75 # stock recruitment deviation SD
+b_target = 0.4 # target biomass
+b_limit = 0.2 # target biomass
+low_survival = 0.5 # fraction surviving high mortaltiy events 
+T = [0.975 0.5; 0.025 0.5]
+s̄ = -2.0 # borrowing budget_constraint
+k = 0.0 # inflation adjusted interest rate 
+y0_RA = 0.01 # fixed cost / alterantive income 
+y0_no_RA = -0.25 # fixed cost / alterantive income 
+cf = 1e-6 # fixed insuance costs here to prevent div by zero
+cv = 0.0 # variable insurance costs,
+κ_bankrupt_no_RA = 0.01 # consumption when bankrupt
+κ_bankrupt_RA = 0.01 # consumption when bankrupt
+γ_RA = 1.001 # Risk aversion 
+γ_no_RA = 0.0 # Risk aversion

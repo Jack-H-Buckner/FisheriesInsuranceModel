@@ -1,0 +1,37 @@
+aversion,scenario,params,xt,pct_increase
+Bankruptcy,Base,no_RA_intermidiate,0.25,3.427329975704908
+Bankruptcy,Base,no_RA_intermidiate,0.5,3.4612723985814005
+Bankruptcy,Base,no_RA_intermidiate,1.0,3.5047636986293247
+Bankruptcy,Base,no_RA_intermidiate,2.0,3.437994410028993
+Bankruptcy,Lower fixed costs (higher y0),no_RA_intermidiate_higher_y0,0.25,0.9019098040177738
+Bankruptcy,Lower fixed costs (higher y0),no_RA_intermidiate_higher_y0,0.5,0.9280396330676699
+Bankruptcy,Lower fixed costs (higher y0),no_RA_intermidiate_higher_y0,1.0,0.8808421533852586
+Bankruptcy,Lower fixed costs (higher y0),no_RA_intermidiate_higher_y0,2.0,0.8423525314264552
+Bankruptcy,Higher fixed costs (lower y0),no_RA_intermidiate_lower_y0,0.25,2.8082900486773505
+Bankruptcy,Higher fixed costs (lower y0),no_RA_intermidiate_lower_y0,0.5,2.8988112895191187
+Bankruptcy,Higher fixed costs (lower y0),no_RA_intermidiate_lower_y0,1.0,2.9652592441191294
+Bankruptcy,Higher fixed costs (lower y0),no_RA_intermidiate_lower_y0,2.0,2.9344094775495537
+Bankruptcy,Higher interest rate k,no_RA_intermidiate_higher_k,0.25,3.287682736403106
+Bankruptcy,Higher interest rate k,no_RA_intermidiate_higher_k,0.5,3.315004859759833
+Bankruptcy,Higher interest rate k,no_RA_intermidiate_higher_k,1.0,3.328587463810147
+Bankruptcy,Higher interest rate k,no_RA_intermidiate_higher_k,2.0,3.2686514877958617
+Risk-averse,Base,RA_intermidiate,0.25,4.191050980491143
+Risk-averse,Base,RA_intermidiate,0.5,4.314575964433007
+Risk-averse,Base,RA_intermidiate,1.0,4.460864847172235
+Risk-averse,Base,RA_intermidiate,2.0,4.258859176219261
+Risk-averse,Higher fixed costs (lower y0),RA_intermidiate_lower_y0,0.25,33.4525623688776
+Risk-averse,Higher fixed costs (lower y0),RA_intermidiate_lower_y0,0.5,32.99913874193138
+Risk-averse,Higher fixed costs (lower y0),RA_intermidiate_lower_y0,1.0,30.015907661631662
+Risk-averse,Higher fixed costs (lower y0),RA_intermidiate_lower_y0,2.0,24.922324894196972
+Risk-averse,Higher risk-aversion a,RA_intermidiate_higher_RA,0.25,37.05440291193189
+Risk-averse,Higher risk-aversion a,RA_intermidiate_higher_RA,0.5,44.13691211070492
+Risk-averse,Higher risk-aversion a,RA_intermidiate_higher_RA,1.0,67.22278654122209
+Risk-averse,Higher risk-aversion a,RA_intermidiate_higher_RA,2.0,62.75455007458793
+Risk-averse,Higher interest rate k,RA_intermidiate_higher_k,0.25,5.391129253297388
+Risk-averse,Higher interest rate k,RA_intermidiate_higher_k,0.5,5.421384510904257
+Risk-averse,Higher interest rate k,RA_intermidiate_higher_k,1.0,5.263955463068998
+Risk-averse,Higher interest rate k,RA_intermidiate_higher_k,2.0,4.580682044382107
+Risk-averse,Lower B_limit,RA_intermidiate_lower_blimit,0.25,1.3469549264149612
+Risk-averse,Lower B_limit,RA_intermidiate_lower_blimit,0.5,1.3747266410479542
+Risk-averse,Lower B_limit,RA_intermidiate_lower_blimit,1.0,1.4365070597080143
+Risk-averse,Lower B_limit,RA_intermidiate_lower_blimit,2.0,1.4176448257728074
