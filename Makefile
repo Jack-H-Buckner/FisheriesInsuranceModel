@@ -55,6 +55,11 @@ all:
 	@echo "	make run_index_no_insurance             2 jobs "
 	@echo "	make run_index                          14 jobs "
 	@echo "	make sync_index                         cluster -> local (run locally) "
+	@echo ""
+	@echo "	make index_status                       one line per job, from its log "
+	@echo "	make index_log PARAMS=<SCENARIO>        full log for one job "
+	@echo "	make index_errors                       only the jobs that failed "
+	@echo "	make index_results                      what has landed in results_index/ "
 #
 #
 run:
@@ -148,3 +153,56 @@ run_index_model: run_index_no_insurance run_index
 # Cluster -> local, one directional.  results_index/ is gitignored.
 sync_index:
 	rsync -avz --partial --info=progress2 $(IDX_HOST):$(IDX_ROOT)/results_index/ ./results_index/
+
+
+################################################
+### Job logs
+###
+### hqsub collects each job's output in a <name>-StdOut DIRECTORY,
+### created in the directory make was run from - so run these from the
+### same place you ran run_index (and `make clean` deletes them).
+### The runners print a fixed set of markers, which is what
+### index_status greps for:
+###
+###   "solving (maxiter = " -> the grid is built, VFI has started
+###   "solved in"           -> VFI finished, writing the solution
+###   "wrote diagnostic"    -> everything on disk, job complete
+################################################
+
+# One line per job: state, scenario, and the last thing it printed (the
+# ProgressMeter bar is \r separated, so it is split back into lines to show the
+# current percentage and ETA rather than one unreadable blob).
+index_status:
+	@found=0; \
+	for d in solve-index-*-StdOut; do \
+	  [ -d "$$d" ] || continue; found=1; \
+	  name=$${d#solve-index-}; name=$${name%-StdOut}; \
+	  if grep -qs "^ERROR" $$d/* 2>/dev/null; then state=FAILED; \
+	  elif grep -qs "wrote diagnostic plots" $$d/* 2>/dev/null; then state=done; \
+	  elif grep -qs "solved in" $$d/* 2>/dev/null; then state=saving; \
+	  elif grep -qs "solving (maxiter" $$d/* 2>/dev/null; then state=solving; \
+	  else state=starting; fi; \
+	  last=`cat $$d/* 2>/dev/null | tr '\r' '\n' | grep -v '^[[:space:]]*$$' | tail -1 | cut -c1-90`; \
+	  printf "%-9s %-30s %s\n" "$$state" "$$name" "$$last"; \
+	done; \
+	[ $$found = 1 ] || echo "no solve-index-*-StdOut directories here - run this where you ran run_index"
+
+# Full log for one job:  make index_log PARAMS=no_RA_int_pr60_re100
+index_log:
+	@cat solve-index-$(PARAMS)-StdOut/* 2>/dev/null | tr '\r' '\n' | tail -n 60 || \
+	  echo "no log for $(PARAMS)"
+
+# Just the failures, with the error text.
+index_errors:
+	@for d in solve-index-*-StdOut; do \
+	  [ -d "$$d" ] || continue; \
+	  grep -qs "^ERROR" $$d/* 2>/dev/null || continue; \
+	  echo "===== $$d"; \
+	  grep -A5 "^ERROR" $$d/* 2>/dev/null | head -20; \
+	done
+
+# What has actually landed in results_index/ on the cluster.
+index_results:
+	@for d in `ls -1 $(IDX_ROOT)/results_index 2>/dev/null`; do \
+	  printf "%-34s %s\n" "$$d" "`ls $(IDX_ROOT)/results_index/$$d | tr '\n' ' '`"; \
+	done
