@@ -6,9 +6,8 @@ include("../src/derived_parameters.jl")
 function joint_transition_from_matrix(T_mx0,T_mx1,T_x)
     E0 = [1.0 0.0; 0.0 0.0]
     E1 = [0.0 0.0; 0.0 1.0]
-    T = kron(T_mx0, E0*T_x) .+ kron(T_mx1, E1*T_x)
     return kron(T_mx0, E0*T_x) .+ kron(T_mx1, E1*T_x)
-end 
+end
 
 
 function joint_transition(p_low,pr, re, p_stay)

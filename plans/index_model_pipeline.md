@@ -66,9 +66,9 @@ Four properties of this parameterization that drive the plan:
    with `b`, `Δb`, `M`.)
 3. **The perfect index is reachable.** `pr = re = 1` ⇒ `p_index = p_low`, `b0 = 0` — payout
    if and only if onset. This was *not* reachable under the previous `(tpr, fpr)` form.
-4. **The uninformative benchmark is `pr = p_low`.** Then `p_index = re`, `b0 = p_low`, and
-   `T_mx0`'s first column equals `T_mx1`'s — the payout carries zero information about `M'`.
-   Demand should go to zero here at `cv = 0`. This is the key falsification test.
+4. **`pr = p_low` is the uninformative limit.** Then `b0 = p_low` and `T_mx0`'s first column
+   equals `T_mx1`'s — the payout carries zero information about `M'`. Not part of the sweep
+   (see below), but it is covered as a unit-test corner case.
 
 **Anchor check (already verified analytically):** `joint_transition(0.05, 0.8, 0.8, 0.4)`
 reproduces the hand-built blocks in `test_intermidiate.ipynb` cell 4 exactly —
@@ -139,24 +139,24 @@ Two properties worth knowing when reading results:
 - **On arm B, `b0 = 0` exactly** for every case — there are no uncovered events at all, so
   any decline in demand along arm B is attributable to price alone.
 
-One scenario outside both arms anchors the bottom of the quality range:
-
-- **`pr = p_low = 0.025, re = 0.50`** ⇒ `T_mx0[:,1] == T_mx1[:,1]`, an uninformative index.
-  Demand must be ≈0 at `cv = 0`. Falsification test, not a design point.
+An uninformative benchmark (`pr = re = p_low`, giving `fpr = b0 = p_low` — a payout
+statistically independent of the event, at the same premium as arm A) was considered and
+**deliberately excluded**. `generate_scenarios.jl` documents how to add it back in one row
+if a zero-demand falsification test is wanted later.
 
 Your prior that `pr < 0.5` gives zero optimal coverage is plausible but untested — arm B at
 `pr = 0.50` already doubles the premium for the same protection. If coverage is still
 substantial there, extending the ladder downward costs 2 jobs per added point, so leave that
 decision until the first results land.
 
-**Job count.** 7 scenarios × 2 base parameter sets = 14 insurance solves, plus the
-uninformative pair = 16, plus 2 no-insurance solves = **18 jobs**. Submit in one go.
+**Job count.** 7 scenarios × 2 base parameter sets = 14 insurance solves, plus 2
+no-insurance solves = **16 jobs**. Submit in one go.
 
 **Compute saving — solve the no-insurance problem once, not once per cell.** With
 `η_grid = [0.0]`, `index_insurance(·, 0, η̄) = 0`, so the index never enters `F`; and because
 `T_x` has identical columns, the `x`-dimension is non-persistent and `M' | M` is the marginal
 `T_M` regardless of `(pr, re)`. The no-insurance value function therefore depends only on
-`(p_low, p_stay)` and is **identical across both arms** — 2 solves, not 16. Step 6 asserts
+`(p_low, p_stay)` and is **identical across both arms** — 2 solves, not 14. Step 6 asserts
 this empirically rather than assuming it (solve two scenarios' no-insurance problems, check
 `V` matches to `1e-8`).
 
@@ -169,8 +169,7 @@ index_model/
   index_transitions.jl        NEW  set_index_T wrapper + validation + index_diagnostics
   grids.jl                    NEW  build_grids(params) — SINGLE source of truth
   parameters/
-    index_universal_params.jl NEW  contract cost structure (cf, cv)
-    generate_scenarios.jl     NEW  writes the precision x recall grid
+    generate_scenarios.jl     NEW  sweep definition + writes the scenario files
     <scenario>.jl             GEN  one file per (base, pr, re) cell
   run.jl                      NEW  solve with insurance      -> results_index/<s>/
   run_no_insurance.jl         NEW  solve with η_grid = [0.0] -> results_index/no_insurance_<s>/
@@ -240,40 +239,43 @@ self-documenting.
 
 ## Step 2 — scenario files
 
-`index_model/parameters/index_universal_params.jl` — contract cost structure only
-(`p_low`/`p_stay` now come from the base parameter file, so nothing else belongs here):
-
-```julia
-index_cf = 1e-6   # base-model default; the notebook used cf = 0.0
-index_cv = 0.0    # base-model default; the notebook used cv = 0.1
-```
-
-Each scenario file, e.g. `index_model/parameters/no_RA_int_pr50_re75.jl`:
+Scenario files carry **only** the contract design. Everything else — `p_low`, `p_stay`, and
+the insurance cost structure `cf = 1e-6`, `cv = 0.0` (actuarially fair) — is already in the
+base parameter set via `parameters/universal_params.jl`, so there is no `index_universal_params.jl`
+and nothing is re-declared. A scenario file is four lines, e.g.
+`index_model/parameters/no_RA_int_pr60_re100.jl`:
 
 ```julia
 # parameters/*.jl call mean_price -> baranov, so the population model must be
-# loaded first. src/run.jl relies on this ordering implicitly; make it explicit
-# here so a scenario file can be included standalone (e.g. by a test).
+# loaded first. Use the index_model copy, never src/population_model.jl: the
+# latter would overwrite update_stock with the two state version.
 include(joinpath(@__DIR__, "..", "population_model.jl"))
 include(joinpath(@__DIR__, "..", "..", "parameters", "no_RA_intermidiate.jl"))  # defines p
-include(joinpath(@__DIR__, "index_universal_params.jl"))
 include(joinpath(@__DIR__, "..", "index_transitions.jl"))
 
-p = set_index_T(p; pr = 0.50, re = 0.75)   # p_low, p_stay inherited from p.T
-p.cf = index_cf; p.cv = index_cv
+p = set_index_T(p; pr = 0.6, re = 1.0)   # p_low, p_stay inherited from p.T
 ```
 
-These are mechanical, so generate them rather than hand-writing 16 files —
+**Cost-structure sweep.** `generate_scenarios.jl` carries a `COST_VARIANTS` list that is
+crossed with every arm and rung. Each entry is `(tag, cf, cv)` where `nothing` means inherit
+from the base set, and the default list is a single inheriting entry — so today's 14 files
+carry no `cf`/`cv` lines at all and `universal_params.jl` stays the one home for the
+fair-price defaults. Uncommenting a row such as `(tag = "cv10", cf = nothing, cv = 0.10)`
+doubles the sweep and produces `no_RA_int_pr60_re100_cv10`, with the load visible in the
+filename, the `results_index/` directory and the manifest. Only the overridden field is
+written into the generated file. The premium actually charged is
+`η̄ = price_per_exposure(p_index, cf, cv) = (p_index + cf)/(1 - cv)`, reported as the
+`eta_bar` column of `summarize_scenarios()`.
+
+These are mechanical, so generate them rather than hand-writing 14 files —
 `index_model/parameters/generate_scenarios.jl` holds the precision ladder, the two arm
 definitions and the base list in one place and writes one file per `(base, pr, re)` scenario,
-deduplicating the `(1.00, 1.00)` cell the arms share. Rerunning it after you edit the ladder
+deduplicating the `(1.00, 1.00)` cell the arms share (16 design rows -> 14 files). Rerunning it after you edit the ladder
 is the supported way to change the sweep.
 
 Naming: `{RA|no_RA}_int_pr<100·pr>_re<100·re>.jl`, e.g. `no_RA_int_pr50_re100.jl`; the
-uninformative case is `no_RA_int_uninformative.jl`, and the two regression anchors are
-`no_RA_int_anchor_notebook.jl` (`p_low=0.05, pr=0.8, re=0.8, p_stay=0.4`) and
-`no_RA_int_anchor_transitions.jl` (`p_low=0.05, pr=1.0, re=0.5, p_stay=0.5`). The
-`no_insurance_` prefix is added by the runner, never by a filename, so `ls parameters/`
+two notebook regression anchors live in the test suite as fixtures rather than as solve
+scenarios, so they cost no HPC jobs. The `no_insurance_` prefix is added by the runner, never by a filename, so `ls parameters/`
 maps 1:1 to scenarios.
 
 **`occursin` hazard:** `src/run.jl:26-31` picks grid bounds by substring-matching `"short"` /
@@ -342,8 +344,12 @@ takes the base name (`no_RA_intermidiate`) rather than a scenario name and is su
 once per base, not once per cell. `setup.jl` resolves a scenario to its matching
 no-insurance directory by reading `p_low`/`p_stay` back out of the scenario's `grid.toml`.
 
-Both runners take the same 7 positional args (the base `Makefile`'s `run:` target passes
-only 1 to `run_no_insurance.jl`, which errors — the new targets pass all 7).
+Both runners take the same arguments — `<params> [config.toml]` (the base `Makefile`'s
+`run:` target passes 1 arg to `src/run_no_insurance.jl`, which wants 7, and errors).
+**Implemented differently than planned:** the six grid sizes and `Nquad` are not
+positional args at all. They are read from `index_model/config.toml`, so a sweep cannot
+end up with jobs on different grids, and the `Makefile` targets pass only the scenario
+name. `run.jl <scenario> <other.toml>` overrides the config file.
 
 ## Step 5 — bug fixes in existing `index_model/` files
 
@@ -486,7 +492,7 @@ under GNU make).
 
 **Compute estimate.** 24×24×18×4 = 41,472 continuous states, ~2× the base model. At the
 notebook's 5,392 states / 24 min on 8 threads, one solve is roughly 3–4 h on 40 threads.
-The whole sweep is 18 jobs (see the scenario section). Run
+The whole sweep is 16 jobs (see the scenario section). Run
 `make run_index_params PARAMS=no_RA_int_anchor_notebook` alone first and check the wall
 clock before submitting the rest.
 
@@ -521,9 +527,8 @@ clock before submitting the rest.
    Solve the no-insurance problem at two different `(pr, re)` cells with the same
    `(p_low, p_stay)` and assert the value functions match to `1e-8`. If this fails, the
    reuse is wrong and the plan reverts to one no-insurance solve per cell.
-5. **Economic sanity** — the `pr = p_low` scenario (uninformative index) should give ≈0 mean
-   coverage and ≈0 welfare gain at `cv = 0`. `no_RA` is risk-neutral (`γ_no_RA = 0.0`), so
-   demand there comes from the borrowing constraint and bankruptcy risk, not risk aversion.
+5. **Economic sanity** — `no_RA` is risk-neutral (`γ_no_RA = 0.0`), so demand comes from the
+   borrowing constraint and bankruptcy risk, not risk aversion.
    Both arms should decline monotonically in falling `pr`, and both must agree exactly at
    `(1.00, 1.00)` — that shared endpoint is a free consistency check across the two arms.
    Whether arm A or arm B falls faster is the open empirical question the sweep exists to

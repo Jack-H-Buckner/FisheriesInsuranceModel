@@ -57,14 +57,18 @@ function simulate_trajectory(p,X::ValueFunctionIterations.MCRandomVariable,T::In
     return states, m, f, h, y
 end 
 
-function simulate_trajectory(p,X,T)
+# Deterministic trajectory under a fixed shock vector X = [recruitment, M draw].
+# X is typed: an untyped third method would be more general than the two above
+# and would silently swallow a call that meant to use one of them.
+# The initial state is (log b, Δ log b, M), matching the two methods above.
+function simulate_trajectory(p,X::AbstractVector,T::Int)
     states = zeros(3,T+2)
-    states[:,1] = [p.b_target,p.b_target,1.0]
+    states[:,1] = [log(p.b_target),0.0,1.0]
     for t in 1:(T+1)
         states[:,t+1] = update_stock(states[:,t],X[1:2],p)[1]
-    end 
+    end
     return states
-end 
+end
 
 
 function init(action_grid,state_grid,δ,p,X,index)
@@ -72,7 +76,8 @@ function init(action_grid,state_grid,δ,p,X,index)
     # unpack grid and set grid for mortlatity and bankruptcy 
     κ_grid,η_grid = action_grid
     s_grid,b_grid,Δb_grid = state_grid 
-    m_grid = 1.0:4.0; y_grid = 1.0:2.0; Ib_grid = 1.0:2.0
+    # 4 joint (mortality, index) states, vs 1.0:2.0 in the base model
+    m_grid = 1.0:4.0
 
     # calculate expected losses
     #bmax = b_grid[end]+1; bmin = b_grid[1]-1; Nb_grid = 150
@@ -108,16 +113,26 @@ function init(action_grid,state_grid,δ,p,X,index)
     function F(s,u,X,p)
 
         Ib,st,Xt,ΔXt,Mt_1=s # Unpack states
+        # Budget available above the borrowing floor, computed as exp(st) here
+        # exactly as in the u closure above.  It must NOT be recovered as
+        # st - p.s̄ after st has been shifted to exp(st) + p.s̄: the two are equal
+        # in exact arithmetic, but the intermediate exp(st) + s̄ has a larger
+        # magnitude than exp(st) and so is stored on a coarser floating point
+        # grid, and adding then subtracting s̄ discards the low order bits of the
+        # small value.  The round trip can land just below exp(st), making this
+        # budget tighter than the one u scaled the actions by, which trips the
+        # κt+ηt check below for an action that spends the whole budget.
+        # Reachable at Ns = 24, the production grid.
+        budget_constraint = exp(st)
         st = exp(st)+p.s̄; bt = exp(Xt); bt_1 = exp(Xt-ΔXt)
         if Ib > 1.0 # If bankrupt stay bankrupt skip remaining computations
             return [2.0, 0.0, 0.0, 0.0, 1.0]
         end
 
-        if !(Mt_1 in [1.0,2.0,3.0,4.0]) # Must be either 1 or 2
-            throw("Mt_1 must be one or two")
-        end 
+        if !(Mt_1 in [1.0,2.0,3.0,4.0]) # Must be one of the four joint states
+            throw("Mt_1 must be in 1:4")
+        end
         # Unpack actions
-        budget_constraint = st - p.s̄
         if p.y0 > 0.0
             budget_constraint += p.y0
         end

@@ -2,4 +2,6 @@
 .claude
 figures/
 results/
+results_index/
+*-StdOut/
 *.pptx

@@ -1,0 +1,33 @@
+#####################################################################
+#####################################################################
+### Grid sizes for the index insurance model.
+###
+### index_model/run.jl and index_model/run_no_insurance.jl read the
+### sizes from here instead of taking them as positional arguments, so
+### every job in a sweep is guaranteed to solve on the same grid: the
+### Makefile submits one job per scenario, and seven numbers repeated
+### per job is how the base model ended up with src/run.jl,
+### src/analysis.jl and analysis/table_4.jl on three different grids.
+###
+### The sizes actually used are copied into each solution's grid.toml,
+### and analysis scripts rebuild from that, so editing this file after
+### a solve raises in assert_grid_match rather than silently changing
+### the numbers under an existing result.
+###
+### Sizes below match the base model (analysis/table_4.jl), so the
+### index results are directly comparable to the published numbers.
+###
+### TOML bare keys are ASCII only, so the Greek names have to be
+### quoted.  The ASCII spellings Nkappa, Neta and NDeltab are accepted
+### as well, if quoting is a nuisance.
+### Jack H. Buckner, Oregon State University, 2026
+#####################################################################
+#####################################################################
+
+[sizes]
+"Nκ"  = 35     # consumption share κ  (action grid)
+"Nη"  = 25     # premium share η      (action grid; a single point with no insurance)
+"Ns"  = 24     # log savings s        (state grid)
+"Nb"  = 24     # log biomass b        (state grid)
+"NΔb" = 18     # change in log biomass (state grid)
+Nquad = 50     # quadrature nodes for the recruitment/price shocks

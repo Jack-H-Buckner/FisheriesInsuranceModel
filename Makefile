@@ -47,17 +47,28 @@ all:
 #
 #
 run:
-	@for params in `ls -1 $(DIRPATH)FisheriesInsuranceModelparameters | grep .jl |  sed 's/.jl//g'`; do \
+	@for params in `ls -1 $(DIRPATH)FisheriesInsuranceModel/parameters | grep .jl |  sed 's/.jl//g'`; do \
     hqsub -P $(PROCS) "julia --threads=$(PROCS) $(DIRPATH)FisheriesInsuranceModel/src/run.jl  $${params} $(NKAPPA) $(NETA) $(NS) $(NB) $(NDELTAB) $(NQUAD)" -r solve-$${params}-StdOut -q ceoas@$(NODE);\
 	hqsub -P $(PROCS) "julia --threads=$(PROCS) $(DIRPATH)FisheriesInsuranceModel/src/run_no_insurance.jl  $${params}" -r solve_no_insurance-$${params}-StdOut -q ceoas@$(NODE);\
     done;
 #
 #
 run_params:
-    hqsub -P $(PROCS) "julia --threads=$(PROCS) $(DIRPATH)FisheriesInsuranceModel/src/run.jl  ${PARAMS} $(NKAPPA) $(NETA) $(NS) $(NB) $(NDELTAB) $(NQUAD)" -r solve-${PARAMS}-StdOut -q ceoas@$(NODE);
+	hqsub -P $(PROCS) "julia --threads=$(PROCS) $(DIRPATH)FisheriesInsuranceModel/src/run.jl  ${PARAMS} $(NKAPPA) $(NETA) $(NS) $(NB) $(NDELTAB) $(NQUAD)" -r solve-${PARAMS}-StdOut -q ceoas@$(NODE);
 	hqsub -P $(PROCS) "julia --threads=$(PROCS) $(DIRPATH)FisheriesInsuranceModel/src/run_no_insurance.jl  ${PARAMS} $(NKAPPA) $(NETA) $(NS) $(NB) $(NDELTAB) $(NQUAD)" -r solve_no_insurance-${PARAMS}-StdOut -q ceoas@$(NODE)
 #
 #
 clean:
 	rm -r -f *-StdOut
 
+
+#
+#
+# The index runners take no size arguments: grid sizes come from
+# index_model/config.toml, so every job in the sweep uses the same grid.
+# NKAPPA ... NQUAD above apply to the base model targets only.
+run_index_model:
+	@for params in `ls -1 $(DIRPATH)FisheriesInsuranceModel/index_model/parameters | grep .jl |  sed 's/.jl//g'`; do \
+    hqsub -P $(PROCS) "julia --threads=$(PROCS) $(DIRPATH)FisheriesInsuranceModel/index_model/run.jl  $${params}" -r solve-$${params}-StdOut -q ceoas@$(NODE);\
+	hqsub -P $(PROCS) "julia --threads=$(PROCS) $(DIRPATH)FisheriesInsuranceModel/index_model/run_no_insurance.jl  $${params}" -r solve_no_insurance-$${params}-StdOut -q ceoas@$(NODE);\
+    done;
