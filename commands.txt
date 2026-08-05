@@ -1,0 +1,3 @@
+rsync -avz --partial --info=progress2 \
+  bucknejo@hpc.ceoas.oregonstate.edu:/home/ceoas/bucknejo/github/FisheriesInsuranceModel/results_index/ \
+  ./results_index/

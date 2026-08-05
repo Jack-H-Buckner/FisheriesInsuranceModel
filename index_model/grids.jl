@@ -25,7 +25,7 @@ const DELTA = 0.95
 # Action bounds, from src/run.jl:53-56.  ηmax applies to the insurance solve
 # only; the no insurance solve uses the degenerate grid [0.0], matching
 # src/run_no_insurance.jl:53.
-const ACTION_BOUNDS = (κmin = 0.01, κmax = 0.99, ηmin = 0.0, ηmax = 0.2)
+const ACTION_BOUNDS = (κmin = 0.01, κmax = 0.99, ηmin = 0.0, ηmax = 0.3)
 
 
 #####################################################################
@@ -181,7 +181,10 @@ function build_grids(params::AbstractString;
     # index_model/model.jl:90, and number of continuous states.  Reported in the
     # job log because together they set the solve cost.
     n_actions = count(κ + η <= 1 for κ in κ_grid, η in η_grid)
-    n_states  = Ns * Nb * NΔb * 4 + 16   # 4 joint mortality/index states, + bankrupt branch
+    # 2 mortality states, + the 16 point degenerate bankrupt branch.  The
+    # contract's T is 4x4 over the joint (mortality, payout) outcome, but the
+    # payout indicator is never carried as a state; see population_model.jl.
+    n_states  = Ns * Nb * NΔb * 2 + 16
 
     return (action_grid = [κ_grid, η_grid],
             state_grid  = [s_grid, b_grid, Δb_grid],
@@ -291,6 +294,17 @@ function assert_grid_match(meta::AbstractDict, g)
         (rec !== nothing && rec ≈ v) ||
             push!(bad, "bounds.$k: recorded $rec, rebuilt $v")
     end
+
+    # n_states is not implied by the sizes above: it also depends on how many
+    # mortality states the model carries.  Checking it is what catches a
+    # solution produced before the model dropped the redundant payout state,
+    # which would otherwise load silently and shift M = 2 from high mortality to
+    # typical-mortality-with-a-payout.
+    rec_n = get(meta, "n_states", nothing)
+    rec_n == g.n_states || push!(bad,
+        "n_states: recorded $rec_n, rebuilt $(g.n_states)" *
+        (rec_n == 2 * g.n_states - 16 ?
+         " (the solution predates the 2 state model; re-solve it)" : ""))
 
     isempty(bad) || throw(ErrorException(
         "grid mismatch for scenario $(meta["scenario"]) - the loaded value function was " *

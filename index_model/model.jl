@@ -76,8 +76,12 @@ function init(action_grid,state_grid,δ,p,X,index)
     # unpack grid and set grid for mortlatity and bankruptcy 
     κ_grid,η_grid = action_grid
     s_grid,b_grid,Δb_grid = state_grid 
-    # 4 joint (mortality, index) states, vs 1.0:2.0 in the base model
-    m_grid = 1.0:4.0
+    # Mortality state only, as in the base model.  The contract's transition
+    # matrix T is 4x4 over the joint (mortality, payout) outcome, but the payout
+    # indicator is drawn fresh each period, paid into savings immediately, and
+    # says nothing about the future, so it is never carried as a state.  See the
+    # header of population_model.jl.
+    m_grid = 1.0:2.0
 
     # calculate expected losses
     #bmax = b_grid[end]+1; bmin = b_grid[1]-1; Nb_grid = 150
@@ -129,8 +133,8 @@ function init(action_grid,state_grid,δ,p,X,index)
             return [2.0, 0.0, 0.0, 0.0, 1.0]
         end
 
-        if !(Mt_1 in [1.0,2.0,3.0,4.0]) # Must be one of the four joint states
-            throw("Mt_1 must be in 1:4")
+        if !(Mt_1 in [1.0,2.0]) # typical or high mortality
+            throw("Mt_1 must be in 1:2")
         end
         # Unpack actions
         if p.y0 > 0.0

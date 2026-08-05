@@ -81,7 +81,7 @@ end
         b = stationary_states(r.p, r.Xmc; n = 300, seed = 7)
         @test a == b                                   # reproducible
         @test size(a) == (3, 301)
-        @test all(m -> m in 1.0:4.0, a[3, :])          # joint mortality/index state
+        @test all(m -> m in 1.0:2.0, a[3, :])          # mortality state only
         @test all(isfinite, a)
         @test a[:, 1] ≈ [log(r.p.b_target), 0.0, 1.0]  # documented initial state
 
@@ -98,7 +98,7 @@ end
         r = rebuild_problem(SCEN; dir = joinpath(WORKDIR, "ins"))
         cl = coverage_grid(r.prob)
 
-        @test size(cl.coverage) == (TINY.Ns, TINY.Nb, TINY.NΔb, 4)
+        @test size(cl.coverage) == (TINY.Ns, TINY.Nb, TINY.NΔb, 2)
         @test cl.coverage ≈ cl.η ./ cl.η̄
         @test all(cl.η .>= 0)
         @test all(isfinite, cl.coverage)
@@ -108,14 +108,13 @@ end
         m = index_moments(0.6, 1.0, 0.025, 0.5)
         @test all(cl.η̄ .≈ price_per_exposure(m.p_index, r.p.cf, r.p.cv))
 
-        # the payout indicator x does not change the distribution of anything in
-        # the future, so states 1 and 2 (and 3 and 4) must have identical policies
-        d = payout_state_discrepancy(cl)
-        @test d.typical < 1e-10
-        @test d.high    < 1e-10
+        # the two mortality states are genuinely distinct: high mortality is a
+        # different problem, so the policies must NOT coincide
+        @test maximum(abs.(cl.coverage[:, :, :, 1] .- cl.coverage[:, :, :, 2])) > 1e-8
 
         @test coverage_heatmap(cl; M = 1) !== nothing
-        @test coverage_heatmap_panel(cl; states = 1:4) !== nothing
+        @test coverage_heatmap(cl; M = 2) !== nothing
+        @test coverage_heatmap_panel(cl; states = 1:2) !== nothing
         # Δb slice picks the axis point nearest the request
         @test Δb_index(cl.grid, -1.0) == 1
         @test Δb_index(cl.grid, 1e6) == length(cl.grid[3])
@@ -141,7 +140,9 @@ end
             # ηmax * budget / η̄
             @test x.mean_coverage <= x.max_coverage + 1e-8
             @test x.q90_coverage  <= x.max_coverage + 1e-8
-            @test x.premium_share <= 0.2 + 1e-8      # ηmax from ACTION_BOUNDS
+            # reference the constant, not a literal, so raising the cap does not
+            # leave a stale bound silently passing here
+            @test x.premium_share <= ACTION_BOUNDS.ηmax + 1e-8
         end
 
         # the cap scales with the budget, so it never binds for the same reason

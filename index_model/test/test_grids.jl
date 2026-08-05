@@ -37,10 +37,10 @@ const SCEN = "no_RA_int_pr60_re100"
         @test (first(b),  last(b))  == (-3.5, 0.5)
         @test (first(Δb), last(Δb)) == (-1.0, 1.25)
         @test (first(κ),  last(κ))  == (0.01, 0.99)
-        @test (first(η),  last(η))  == (0.0, 0.2)
+        @test (first(η),  last(η))  == (0.0, 0.3)
 
         @test g.δ == 0.95
-        @test g.n_states == GRID_DEFAULTS.Ns * GRID_DEFAULTS.Nb * GRID_DEFAULTS.NΔb * 4 + 16
+        @test g.n_states == GRID_DEFAULTS.Ns * GRID_DEFAULTS.Nb * GRID_DEFAULTS.NΔb * 2 + 16
         @test g.n_actions == count(k + e <= 1 for k in κ, e in η)
         @test g.n_actions < length(κ) * length(η)   # the budget simplex bites
     end
@@ -188,7 +188,7 @@ const SCEN = "no_RA_int_pr60_re100"
         @test prob isa ValueFunctionIterations.DynamicProgram
         # the value function carries the 4 joint mortality/index states
         @test size(prob.V.states, 1) == 5
-        @test g.n_states == 5 * 6 * 4 * 4 + 16
+        @test g.n_states == 5 * 6 * 4 * 2 + 16
 
         # F advances the state without error from an interior point
         node = X([0.0, 0.0, 0.0, 0.0, 1.0], p).nodes[:, 5]

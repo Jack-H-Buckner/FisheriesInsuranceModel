@@ -16,10 +16,11 @@ the non bankrupt state grid of a solved problem.
 
 Returns a NamedTuple with
 
-  η        premium spending, size (Ns, Nb, NΔb, 4)
+  η        premium spending, size (Ns, Nb, NΔb, 2)
   η̄        price per unit exposure, same size
   coverage η ./ η̄, the units of exposure bought
-  grid     the (s, b, Δb, M) axes, taken from the value function itself
+  grid     the (s, b, Δb, M) axes, taken from the value function itself,
+           with M in {1 typical mortality, 2 high mortality}
 
 The axes come from `prob.V`, not from a grid passed in by the caller, so they
 cannot disagree with the grid the problem was solved on.  For this model `El`

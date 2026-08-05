@@ -28,18 +28,15 @@ include(joinpath(@__DIR__, "setup.jl"))
 
 Coverage over the full non bankrupt state grid.  Thin wrapper on
 `coverage_levels` (index_model/analysis.jl), which returns
-`(η, η̄, coverage, grid)` with `coverage` of size `(Ns, Nb, NΔb, 4)` and `grid`
+`(η, η̄, coverage, grid)` with `coverage` of size `(Ns, Nb, NΔb, 2)` and `grid`
 the `(s, b, Δb, M)` axes read off the value function.
 """
 coverage_grid(prob) = coverage_levels(prob)
 
 
-# The joint state is 2*(M-1) + x.  Because T_x has identical columns the payout
-# indicator x carries no information about the future, so states 1 and 2 (and 3
-# and 4) are dynamically identical and their policies coincide.  Label the two
-# that matter.
-const M_STATE_LABELS = Dict(1 => "typical mortality", 2 => "typical mortality (payout)",
-                            3 => "high mortality",    4 => "high mortality (payout)")
+# The model carries mortality only: the payout indicator is drawn fresh each
+# period and never enters the state (see population_model.jl).
+const M_STATE_LABELS = Dict(1 => "typical mortality", 2 => "high mortality")
 
 # Index of the Δb axis closest to a target, defaulting to a stock that was flat
 # last period.
@@ -53,7 +50,7 @@ end
     coverage_heatmap(cl; Δb = 0.0, M = 1, kwargs...)
 
 Heat map of optimal coverage over biomass (x) and budget above the borrowing
-floor (y), sliced at one Δ log b and one joint mortality/index state.
+floor (y), sliced at one Δ log b and one mortality state.
 
 Both axes are plotted in levels rather than logs: `exp` of the `b` and `s` grids.
 """
@@ -70,27 +67,14 @@ end
 
 
 """
-    coverage_heatmap_panel(cl; Δb = 0.0, states = (1, 3))
+    coverage_heatmap_panel(cl; Δb = 0.0, states = (1, 2))
 
-Heat maps for several joint mortality/index states side by side.  Defaults to
-the two dynamically distinct states; pass `states = 1:4` to see all four and
-confirm 1 matches 2 and 3 matches 4.
+Heat maps for the typical and high mortality states side by side.
 """
-function coverage_heatmap_panel(cl; Δb = 0.0, states = (1, 3), kwargs...)
+function coverage_heatmap_panel(cl; Δb = 0.0, states = (1, 2), kwargs...)
     plts = [coverage_heatmap(cl; Δb = Δb, M = M, kwargs...) for M in states]
     return Plots.plot(plts..., layout = (1, length(plts)),
                       size = (420 * length(plts), 340))
-end
-
-
-# The payout indicator x should not change behaviour, because it does not change
-# the distribution of anything in the future.  Reported as a diagnostic rather
-# than asserted, since the two states are solved independently and agree only up
-# to solver tolerance.
-function payout_state_discrepancy(cl)
-    a = maximum(abs.(cl.coverage[:, :, :, 1] .- cl.coverage[:, :, :, 2]))
-    b = maximum(abs.(cl.coverage[:, :, :, 3] .- cl.coverage[:, :, :, 4]))
-    return (typical = a, high = b)
 end
 
 

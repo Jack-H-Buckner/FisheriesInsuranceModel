@@ -54,14 +54,15 @@ prob, g, = solve_scenario(p, "no_RA_int_pr60_re100";
         @test length(x.Ibt) == NSIM + 1
     end
 
-    @testset "mortality uses the 4 state mapping" begin
-        # environment_mortaltiy_index, not the 2 state environment_mortaltiy,
-        # which would return m̲ for state 2 (typical mortality with a payout).
+    @testset "mortality state is carried, payout is not" begin
+        # The model carries mortality only, so the mapping is the two state one.
         @test all(m -> m ≈ p.m̄ || m ≈ p.m̲, x.mt)
         @test environment_mortaltiy_index(1, p.m̄, p.m̲) ≈ p.m̄
-        @test environment_mortaltiy_index(2, p.m̄, p.m̲) ≈ p.m̄   # payout, typical M
-        @test environment_mortaltiy_index(3, p.m̄, p.m̲) ≈ p.m̲
-        @test environment_mortaltiy_index(4, p.m̄, p.m̲) ≈ p.m̲
+        @test environment_mortaltiy_index(2, p.m̄, p.m̲) ≈ p.m̲
+        # the joint draw is still 4 valued; it is split, not carried
+        @test [joint_mortality(j) for j in 1:4] == [1, 1, 2, 2]
+        @test [joint_payout(j)    for j in 1:4] == [false, true, false, true]
+        @test (joint_column(1.0), joint_column(2.0)) == (1, 3)
     end
 
     @testset "plots take p explicitly" begin
@@ -74,7 +75,7 @@ prob, g, = solve_scenario(p, "no_RA_int_pr60_re100";
     @testset "coverage_levels" begin
         cl = coverage_levels(prob)
 
-        @test size(cl.η) == (TINY.Ns, TINY.Nb, TINY.NΔb, 4)
+        @test size(cl.η) == (TINY.Ns, TINY.Nb, TINY.NΔb, 2)
         @test size(cl.η) == size(cl.η̄) == size(cl.coverage)
         @test all(isfinite, cl.coverage)
         @test all(cl.η .>= 0)
@@ -85,7 +86,7 @@ prob, g, = solve_scenario(p, "no_RA_int_pr60_re100";
         for d in 1:3
             @test collect(cl.grid[d]) ≈ collect(g.state_grid[d])
         end
-        @test collect(cl.grid[4]) == collect(1.0:4.0)
+        @test collect(cl.grid[4]) == collect(1.0:2.0)
 
         # El is state independent for this model, so the fair price is flat and
         # every bit of variation in `coverage` is demand rather than price

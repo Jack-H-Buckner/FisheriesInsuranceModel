@@ -25,9 +25,9 @@
 #####################################################################
 
 [sizes]
-"Nκ"  = 35     # consumption share κ  (action grid)
-"Nη"  = 25     # premium share η      (action grid; a single point with no insurance)
-"Ns"  = 24     # log savings s        (state grid)
-"Nb"  = 24     # log biomass b        (state grid)
-"NΔb" = 18     # change in log biomass (state grid)
-Nquad = 50     # quadrature nodes for the recruitment/price shocks
+"Nκ"  = 30     # consumption share κ  (action grid)
+"Nη"  = 20     # premium share η      (action grid; a single point with no insurance)
+"Ns"  = 20     # log savings s        (state grid)
+"Nb"  = 15     # log biomass b        (state grid)
+"NΔb" = 10     # change in log biomass (state grid)
+Nquad = 10     # quadrature nodes for the recruitment/price shocks
