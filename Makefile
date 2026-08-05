@@ -9,7 +9,7 @@
 DIRPATH=/home/ceoas/bucknejo/github/
 #
 #
-PROCS=40
+PROCS=20
 #
 #
 NODE=amaterasu01
