@@ -1,5 +1,4 @@
 [deps]
-CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 ComponentArrays = "b0b7db55-cfe3-40fc-9ded-d10e2dbeff66"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 IJulia = "7073ff75-c697-5162-941a-fcdaad2a7d2a"
