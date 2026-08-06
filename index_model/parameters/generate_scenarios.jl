@@ -23,7 +23,7 @@ include(joinpath(@__DIR__, "..", "index_transitions.jl"))
 
 # Precision ladder shared by both arms.  Spaced so that the arm B premium
 # multiplier 1/pr lands on an even 1.00 / 1.33 / 1.67 / 2.00 sequence.
-const PR_LADDER = [1.00, 0.75, 0.60, 0.50]
+const PR_LADDER = [1.00, 0.75, 0.6, 0.50, 0.42, 0.333]
 
 # An uninformative falsification scenario (pr = re = p_low, which gives
 # fpr = b0 = p_low, i.e. a payout statistically independent of the mortality

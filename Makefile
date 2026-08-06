@@ -152,7 +152,7 @@ run_index_model: run_index_no_insurance run_index
 
 # Cluster -> local, one directional.  results_index/ is gitignored.
 sync_index:
-	rsync -avz --partial --info=progress2 $(IDX_HOST):$(IDX_ROOT)/results_index/ ./results_index/
+	rsync -avz $(IDX_HOST):$(IDX_ROOT)/results_index/ ./results_index/
 
 
 ################################################

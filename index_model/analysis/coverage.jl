@@ -13,6 +13,7 @@
 ### Coverage is η / η̄ throughout: premium spending divided by the price
 ### per unit exposure, i.e. the units of exposure bought.
 ### Jack H. Buckner, Oregon State University, 2026
+### Code generated with Calude 
 #####################################################################
 #####################################################################
 
