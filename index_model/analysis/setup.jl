@@ -142,3 +142,71 @@ function thin_states(sim_states, nmax::Int)
     n <= nmax && return sim_states
     return sim_states[:, round.(Int, range(1, n, length = nmax))]
 end
+
+
+"""
+    assert_comparable(prob_ins, prob_no)
+
+Throw unless the two solutions are the same problem apart from the premium grid.
+
+Every metric that contrasts insurance with no insurance runs this first.  It is
+cheap, and it catches the two mistakes that actually happen: passing two
+insurance solves, and pairing a scenario with another base's no insurance solve.
+"""
+function assert_comparable(prob_ins, prob_no)
+    probe = [1.0, 0.0, 0.0, 0.0, 1.0]
+    all(prob_no.u(probe, prob_no.p)[2, :] .== 0.0) || throw(ArgumentError(
+        "prob_no is not a no insurance solution: its premium grid is not [0.0]"))
+    any(prob_ins.u(probe, prob_ins.p)[2, :] .> 0.0) || throw(ArgumentError(
+        "prob_ins has a degenerate premium grid; it looks like a no insurance solve"))
+    prob_ins.V.Bslines[1].grid == prob_no.V.Bslines[1].grid || throw(ArgumentError(
+        "the two solutions are on different state grids, so they cannot be " *
+        "compared state by state"))
+    prob_ins.δ ≈ prob_no.δ || throw(ArgumentError(
+        "different discount rates: $(prob_ins.δ) vs $(prob_no.δ)"))
+    prob_ins.p.γ ≈ prob_no.p.γ || throw(ArgumentError(
+        "different risk aversion: $(prob_ins.p.γ) vs $(prob_no.p.γ)"))
+    return nothing
+end
+
+
+#####################################################################
+### Tidy CSV output
+#####################################################################
+#
+# Written by hand rather than with CSV.jl: neither CSV nor DataFrames is in
+# Project.toml (analysis/table_4.jl uses both and so does not run under
+# --project=.), and the analysis tables are flat rows of numbers and short
+# strings.  Keeping the index model free of the extra dependencies means the
+# same environment that solves also analyses.
+
+csv_field(x::AbstractString) =
+    any(c -> c in (',', '"', '\n', '\r'), x) ? '"' * replace(x, '"' => "\"\"") * '"' : x
+csv_field(x::Symbol)  = csv_field(string(x))
+csv_field(x::Bool)    = string(x)
+csv_field(x::Real)    = isnan(x) ? "NA" : string(x)   # NA reads as missing in R
+csv_field(x::Nothing) = "NA"
+csv_field(x)          = csv_field(string(x))
+
+"""
+    write_csv(path, rows; columns = keys(first(rows)))
+
+Write a vector of NamedTuples as a tidy CSV, creating the directory if needed.
+Every row must carry `columns`; a row missing one is an error rather than a
+silently blank cell.
+"""
+function write_csv(path::AbstractString, rows::AbstractVector; columns = nothing)
+    isempty(rows) && throw(ArgumentError("nothing to write to $path"))
+    cols = something(columns, collect(keys(first(rows))))
+    mkpath(dirname(abspath(path)))
+    open(path, "w") do io
+        println(io, join(csv_field.(cols), ","))
+        for r in rows
+            missing_cols = [c for c in cols if !haskey(r, c)]
+            isempty(missing_cols) || throw(ArgumentError(
+                "row is missing " * join(string.(missing_cols), ", ")))
+            println(io, join([csv_field(r[c]) for c in cols], ","))
+        end
+    end
+    return path
+end

@@ -60,6 +60,23 @@ all:
 	@echo "	make index_log PARAMS=<SCENARIO>        full log for one job "
 	@echo "	make index_errors                       only the jobs that failed "
 	@echo "	make index_results                      what has landed in results_index/ "
+	@echo ""
+	@echo "    index insurance analysis - bankruptcy rates, on the cluster: "
+	@echo ""
+	@echo "	make bankruptcy_jobs                    list what would be submitted "
+	@echo "	make run_index_bankruptcy_quick         all scenarios, tiny, ~2 min "
+	@echo "	make run_index_bankruptcy               one job per scenario "
+	@echo "	make bankruptcy_status                  one line per job, from its log "
+	@echo "	make bankruptcy_errors                  only the jobs that failed "
+	@echo ""
+	@echo "    ... then, locally: "
+	@echo ""
+	@echo "	make sync_index_analysis                cluster -> local "
+	@echo "	make merge_index_bankruptcy             parts -> index_bankruptcy.csv "
+	@echo ""
+	@echo "	make analysis_index_bankruptcy          the same run, but all in one "
+	@echo "	                                        process on this machine "
+	@echo "	make test_index                         the index_model test suite "
 #
 #
 run:
@@ -153,6 +170,148 @@ run_index_model: run_index_no_insurance run_index
 # Cluster -> local, one directional.  results_index/ is gitignored.
 sync_index:
 	rsync -avz $(IDX_HOST):$(IDX_ROOT)/results_index/ ./results_index/
+
+
+################################################
+### Index insurance analysis: bankruptcy rates (demand metric 3)
+###
+### Submitted on the cluster, like the solves, but with a different
+### shape.  The solves are one long job per scenario; this is one SHORT
+### job per scenario, and the parallel unit inside a job is the N
+### simulated trajectories rather than the state grid.
+###
+### It reads results_index/ and never writes it, so it runs on the
+### cluster directly after run_index finishes - there is no need to
+### sync the 300 MB of solutions down first.  Each job writes its own
+### part table; merge_index_bankruptcy combines them.
+###
+###   on the cluster        make run_index_bankruptcy
+###                         make bankruptcy_status
+###   locally               make sync_index_analysis
+###                         make merge_index_bankruptcy
+###
+### A scenario whose solve has not landed yet is reported and skipped
+### by its job, so a partial sweep still produces a partial table.
+################################################
+
+IDX_MANUSCRIPT=$(IDX_ROOT)/manuscript_index
+IDX_PARTS=$(IDX_MANUSCRIPT)/parts
+
+# Scenarios to analyse.  The plan computes the demand metrics on the risk
+# neutral sets, so this is the scenario list filtered to no_RA_*; drop the
+# `grep '^no_RA'` to include the RA_* sets as well.
+IDX_ANALYSIS_SCENARIOS=$$(ls -1 $(IDX_PARAMS) | grep '\.jl$$' | grep -v -e generate_scenarios -e universal | grep '^no_RA' | sed 's/\.jl$$//')
+
+# Extra arguments for run_bankruptcy.jl, e.g.
+#   make run_index_bankruptcy BANKRUPTCY_ARGS="--N=120 --B=4000"
+# Run `julia index_model/analysis/run_bankruptcy.jl --help` style options are
+# documented in the header of that file.
+BANKRUPTCY_ARGS=
+
+# Print what run_index_bankruptcy would submit, without submitting it.
+bankruptcy_jobs:
+	@echo "root       $(IDX_ROOT)"
+	@echo "parts      $(IDX_PARTS)"
+	@echo "args       $(BANKRUPTCY_ARGS)"
+	@echo "scenarios:"
+	@for params in $(IDX_ANALYSIS_SCENARIOS); do \
+	  if [ -f $(IDX_ROOT)/results_index/$${params}/sol.jld2 ]; then s=solved; else s="NOT SOLVED"; fi; \
+	  printf "    %-34s %s\n" "$${params}" "$${s}"; \
+	done
+	@echo "total      $$(echo $(IDX_ANALYSIS_SCENARIOS) | wc -w) jobs"
+
+# One job per scenario.  Each is threaded over its N trajectories, so PROCS
+# threads is the right request even though the job is short.
+run_index_bankruptcy:
+	@mkdir -p $(IDX_PARTS)
+	@for params in $(IDX_ANALYSIS_SCENARIOS); do \
+	  hqsub -P $(PROCS) "julia --project=$(IDX_ROOT) --threads=$(PROCS) $(IDX_ROOT)/index_model/analysis/run_bankruptcy.jl $${params} --out=$(IDX_PARTS)/index_bankruptcy_$${params}.csv $(BANKRUPTCY_ARGS)" -r bankruptcy-$${params}-StdOut -q ceoas@$(NODE); \
+	done;
+
+# The whole sweep at a resolution that finishes in a couple of minutes.  Submit
+# this first: it exercises every scenario's solution end to end, so a missing or
+# mismatched solve surfaces before the real run queues.  The numbers it writes
+# are a plumbing check, NOT results - overwrite them with the real run.
+run_index_bankruptcy_quick:
+	@$(MAKE) run_index_bankruptcy BANKRUPTCY_ARGS="--quick $(BANKRUPTCY_ARGS)"
+
+# One scenario:  make run_index_bankruptcy_params PARAMS=no_RA_int_pr60_re100
+run_index_bankruptcy_params:
+	@mkdir -p $(IDX_PARTS)
+	hqsub -P $(PROCS) "julia --project=$(IDX_ROOT) --threads=$(PROCS) $(IDX_ROOT)/index_model/analysis/run_bankruptcy.jl ${PARAMS} --out=$(IDX_PARTS)/index_bankruptcy_${PARAMS}.csv $(BANKRUPTCY_ARGS)" -r bankruptcy-${PARAMS}-StdOut -q ceoas@$(NODE)
+
+# One line per job.  The markers come from run_bankruptcy.jl's own output:
+#   "simulating"  -> solutions loaded, trajectories running
+#   "wrote"       -> the part table is on disk, job complete
+bankruptcy_status:
+	@found=0; \
+	for d in bankruptcy-*-StdOut; do \
+	  [ -d "$$d" ] || continue; found=1; \
+	  name=$${d#bankruptcy-}; name=$${name%-StdOut}; \
+	  if grep -qs "^ERROR" $$d/* 2>/dev/null; then state=FAILED; \
+	  elif grep -qs "^wrote " $$d/* 2>/dev/null; then state=done; \
+	  elif grep -qs "skipping" $$d/* 2>/dev/null; then state=SKIPPED; \
+	  elif grep -qs "simulating" $$d/* 2>/dev/null; then state=running; \
+	  else state=starting; fi; \
+	  last=`cat $$d/* 2>/dev/null | tr '\r' '\n' | grep -v '^[[:space:]]*$$' | tail -1 | cut -c1-90`; \
+	  printf "%-9s %-34s %s\n" "$$state" "$$name" "$$last"; \
+	done; \
+	[ $$found = 1 ] || echo "no bankruptcy-*-StdOut directories here - run this where you ran run_index_bankruptcy"
+
+# Full log for one job:  make bankruptcy_log PARAMS=no_RA_int_pr60_re100
+bankruptcy_log:
+	@cat bankruptcy-$(PARAMS)-StdOut/* 2>/dev/null | tr '\r' '\n' | tail -n 60 || \
+	  echo "no log for $(PARAMS)"
+
+bankruptcy_errors:
+	@for d in bankruptcy-*-StdOut; do \
+	  [ -d "$$d" ] || continue; \
+	  grep -qs "^ERROR" $$d/* 2>/dev/null || continue; \
+	  echo "===== $$d"; \
+	  grep -A5 "^ERROR" $$d/* 2>/dev/null | head -20; \
+	done
+
+# What has landed in manuscript_index/parts/ on the cluster.
+bankruptcy_results:
+	@ls -1 $(IDX_PARTS) 2>/dev/null | sed 's/^/    /' || echo "nothing in $(IDX_PARTS) yet"
+
+
+################################################
+### Index insurance analysis: local side
+################################################
+
+# Cluster -> local, one directional, and small: these are CSVs, not solutions.
+sync_index_analysis:
+	rsync -avz $(IDX_HOST):$(IDX_MANUSCRIPT)/ ./manuscript_index/
+
+# parts/*.csv -> manuscript_index/index_bankruptcy.csv, in sweep order.
+# Cheap and idempotent, so it is fine to rerun while jobs are still landing.
+merge_index_bankruptcy:
+	julia --project=. index_model/analysis/merge_bankruptcy.jl
+
+# IDX_THREADS is the parallel width of the bankruptcy simulation when it is run
+# here rather than submitted; set it to the number of cores on this machine.
+IDX_THREADS=8
+
+# The whole sweep in ONE process, no scheduler, writing the merged CSV directly.
+# Use this locally after `make sync_index`; on the cluster prefer the fan out
+# above, which is the same calculation spread over one job per scenario.
+analysis_index_bankruptcy:
+	julia --project=. --threads=$(IDX_THREADS) index_model/analysis/run_bankruptcy.jl $(BANKRUPTCY_ARGS)
+
+analysis_index_bankruptcy_quick:
+	julia --project=. --threads=$(IDX_THREADS) index_model/analysis/run_bankruptcy.jl --quick $(BANKRUPTCY_ARGS)
+
+analysis_index_bankruptcy_params:
+	julia --project=. --threads=$(IDX_THREADS) index_model/analysis/run_bankruptcy.jl ${PARAMS} $(BANKRUPTCY_ARGS)
+
+test_index:
+	julia --project=. --threads=$(IDX_THREADS) index_model/test/test_transitions.jl
+	julia --project=. --threads=$(IDX_THREADS) index_model/test/test_grids.jl
+	julia --project=. --threads=$(IDX_THREADS) index_model/test/test_runners.jl
+	julia --project=. --threads=$(IDX_THREADS) index_model/test/test_analysis.jl
+	julia --project=. --threads=$(IDX_THREADS) index_model/test/test_coverage.jl
+	julia --project=. --threads=$(IDX_THREADS) index_model/test/test_bankruptcy.jl
 
 
 ################################################

@@ -69,24 +69,9 @@ budget_grid(prob; n::Int = 15) =
 
 
 # The two solutions have to be the same problem apart from the premium grid,
-# otherwise the difference is meaningless.  Cheap to check, and it catches the
-# two mistakes that actually happen: passing two insurance solves, and pairing a
-# scenario with another base's no insurance solve.
-function assert_comparable(prob_ins, prob_no)
-    probe = [1.0, 0.0, 0.0, 0.0, 1.0]
-    all(prob_no.u(probe, prob_no.p)[2, :] .== 0.0) || throw(ArgumentError(
-        "prob_no is not a no insurance solution: its premium grid is not [0.0]"))
-    any(prob_ins.u(probe, prob_ins.p)[2, :] .> 0.0) || throw(ArgumentError(
-        "prob_ins has a degenerate premium grid; it looks like a no insurance solve"))
-    prob_ins.V.Bslines[1].grid == prob_no.V.Bslines[1].grid || throw(ArgumentError(
-        "the two solutions are on different state grids, so V cannot be " *
-        "differenced state by state"))
-    prob_ins.δ ≈ prob_no.δ || throw(ArgumentError(
-        "different discount rates: $(prob_ins.δ) vs $(prob_no.δ)"))
-    prob_ins.p.γ ≈ prob_no.p.γ || throw(ArgumentError(
-        "different risk aversion: $(prob_ins.p.γ) vs $(prob_no.p.γ)"))
-    return nothing
-end
+# otherwise the difference is meaningless.  `assert_comparable` lives in
+# setup.jl: bankruptcy.jl needs exactly the same check on the same pair of
+# solutions, so it is shared infrastructure rather than part of this metric.
 
 
 """

@@ -3,5 +3,8 @@
 figures/
 results/
 results_index/
+# One part table per HPC job; merge_bankruptcy.jl combines them into
+# manuscript_index/index_bankruptcy.csv, which IS tracked.
+manuscript_index/parts/
 *-StdOut/
 *.pptx
