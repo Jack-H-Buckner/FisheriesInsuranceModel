@@ -52,7 +52,7 @@ const BASES = [
 const COST_VARIANTS = [
     (tag = "",     cf = nothing, cv = nothing),  # inherit from the base set
     # (tag = "cv10", cf = nothing, cv = 0.10),   # 10% variable load
-    (tag = "cv50", cf = nothing, cv = 0.33),   # 50% loading factor
+    (tag = "cv33", cf = nothing, cv = 0.33),   # 50% loading factor
 ]
 
 const ARM_DOC = Dict(
