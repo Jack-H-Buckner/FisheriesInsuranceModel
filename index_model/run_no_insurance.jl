@@ -36,9 +36,10 @@ include(joinpath(@__DIR__, "parameters", "generate_scenarios.jl"))
 
 args = parse_runner_args(ARGS)   # also reads and validates the grid config
 scenario_row(args.params)        # fail fast on a typo, before loading anything
-println("grid sizes from ", args.config)
+println("grid sizes from ", args.config,
+        isempty(args.tag) ? "" : "  (output tag \"$(args.tag)\")")
 
 # See the note in run.jl: top level, not inside solve_scenario.  Defines `p`.
 include(joinpath(@__DIR__, "parameters", args.params * ".jl"))
 
-solve_scenario(p, args.params; insurance = false, args.sizes...)
+solve_scenario(p, args.params; insurance = false, tag = args.tag, args.sizes...)

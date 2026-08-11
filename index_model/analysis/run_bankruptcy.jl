@@ -24,6 +24,12 @@
 ###
 ###   --all            include the RA_* scenarios too; by default only
 ###                    the no_RA_* sets are run, as in the plan
+###   --tag=_cheaper   read the PRELIMINARY results tree written by a
+###                    solve on index_model/config_cheaper.toml, i.e.
+###                    results_index/<scenario>_cheaper/.  The default
+###                    output file becomes index_bankruptcy_cheaper.csv
+###                    so preliminary numbers cannot overwrite the
+###                    production table
 ###   --N=60           trajectories per scenario
 ###   --T=250          periods per trajectory
 ###   --B=2000         bootstrap resamples
@@ -31,6 +37,10 @@
 ###   --savings=0.0    savings at the start of each trajectory
 ###   --unpaired       give the two arms independent shocks, which is
 ###                    what analysis/table_4.jl does
+###   --scenario-draws drop the common draws ACROSS scenarios, so each
+###                    contract gets its own biological paths.  Only for
+###                    checking that a result is not an artefact of one
+###                    shared path; the sweep is meant to share them
 ###   --quick          N=8, T=60, B=200; for testing, not for results
 ###   --out=PATH       output CSV
 ###
@@ -56,8 +66,12 @@ include(joinpath(@__DIR__, "bankruptcy.jl"))
 ### Arguments
 #####################################################################
 
-const DEFAULT_OUT = joinpath(normpath(joinpath(@__DIR__, "..", "..")),
-                             "manuscript_index", "index_bankruptcy.csv")
+const MANUSCRIPT = joinpath(normpath(joinpath(@__DIR__, "..", "..")), "manuscript_index")
+
+# Tag aware, so preliminary numbers land in index_bankruptcy_cheaper.csv and
+# cannot overwrite the production table.
+default_out(tag::AbstractString = "") =
+    joinpath(MANUSCRIPT, "index_bankruptcy" * tag * ".csv")
 
 const QUICK = (N = 8, T = 60, B = 200)
 
@@ -66,7 +80,8 @@ function parse_args(args)
         :N => BANKRUPTCY_SETTINGS.N, :T => BANKRUPTCY_SETTINGS.T,
         :B => BANKRUPTCY_SETTINGS.B, :seed => BANKRUPTCY_SETTINGS.seed,
         :savings => BANKRUPTCY_SETTINGS.s0_savings,
-        :paired => true, :all => false, :out => DEFAULT_OUT, :quick => false)
+        :paired => true, :common_draws => true,
+        :all => false, :tag => "", :out => nothing, :quick => false)
     scenarios = String[]
 
     for a in args
@@ -74,12 +89,14 @@ function parse_args(args)
             push!(scenarios, String(a))
         elseif a == "--all";      opts[:all] = true
         elseif a == "--unpaired"; opts[:paired] = false
+        elseif a == "--scenario-draws"; opts[:common_draws] = false
         elseif a == "--quick";    opts[:quick] = true
         elseif startswith(a, "--N=");       opts[:N] = parse(Int, a[5:end])
         elseif startswith(a, "--T=");       opts[:T] = parse(Int, a[5:end])
         elseif startswith(a, "--B=");       opts[:B] = parse(Int, a[5:end])
         elseif startswith(a, "--seed=");    opts[:seed] = parse(Int, a[8:end])
         elseif startswith(a, "--savings="); opts[:savings] = parse(Float64, a[11:end])
+        elseif startswith(a, "--tag=");     opts[:tag] = String(a[7:end])
         elseif startswith(a, "--out=");     opts[:out] = String(a[7:end])
         else
             throw(ArgumentError("unknown option $a; see the header of " *
@@ -94,6 +111,10 @@ function parse_args(args)
             any(startswith(a, "--$k=") for a in args) || (opts[k] = v)
         end
     end
+
+    # Resolved after the loop so --tag picks the matching default table even
+    # when it is given after --out on the command line.
+    opts[:out] === nothing && (opts[:out] = default_out(opts[:tag]))
 
     # Fail on a typo now rather than after the first scenario has run.
     foreach(scenario_row, scenarios)
@@ -119,9 +140,9 @@ end
 # A scenario can only be run once both its own solution and its base's shared no
 # insurance solution are on disk.  Missing solutions are reported and skipped
 # rather than raising, so a partially synced sweep still produces a table.
-function solution_status(scenario)
-    ins = joinpath(output_dir(scenario; insurance = true),  "sol.jld2")
-    non = joinpath(output_dir(scenario; insurance = false), "sol.jld2")
+function solution_status(scenario, tag::AbstractString = "")
+    ins = joinpath(output_dir(scenario; insurance = true,  tag = tag), "sol.jld2")
+    non = joinpath(output_dir(scenario; insurance = false, tag = tag), "sol.jld2")
     isfile(ins) || return (ok = false, why = "no insurance solve at $(relpath(ins))")
     isfile(non) || return (ok = false, why = "no no-insurance solve at $(relpath(non))")
     return (ok = true, why = "")
@@ -136,11 +157,15 @@ end
 # against the shared precision ladder straight from the CSV without re-deriving
 # anything.  p_low and p_stay come from the solved problem's own parameters, not
 # from a constant here.
-function design_columns(scenario, r, p)
+function design_columns(scenario, r, p, tag::AbstractString = "")
     mc = marginal_chain(p.T)
     m = index_moments(r.pr, r.re, mc.p_low, mc.p_stay)
     return (
         scenario      = scenario,
+        # Which results tree these numbers came from: "" is production, anything
+        # else is a preliminary solve on a lighter grid.  Carried in the table so
+        # a CSV can never be mistaken for the production one.
+        results_tag   = isempty(tag) ? "production" : tag,
         base          = r.base,
         cost_tag      = isempty(r.cost_tag) ? "fair" : r.cost_tag,
         pr            = r.pr,
@@ -165,20 +190,22 @@ const RESULT_COLUMNS = (
     :lambda, :lambda_lo, :lambda_hi,
     :lambda_no_I, :lambda_no_I_lo, :lambda_no_I_hi,
     :lambda_ratio, :ratio_lo, :ratio_hi,
-    :horizon, :T, :seed, :paired, :s0_savings, :B, :boot_dropped, :minutes,
+    :horizon, :T, :seed, :paired, :common_draws, :s0_savings,
+    :B, :boot_dropped, :minutes,
 )
 
 function scenario_rows(scenario, opts)
     r = scenario_row(scenario)
-    ri  = rebuild_problem(scenario)
-    ri0 = rebuild_problem(scenario; insurance = false)
+    ri  = rebuild_problem(scenario; tag = opts[:tag])
+    ri0 = rebuild_problem(scenario; insurance = false, tag = opts[:tag])
 
     res = bankruptcy_rate(ri.prob, ri0.prob;
                           N = opts[:N], T = opts[:T], B = opts[:B],
                           seed = opts[:seed], s0_savings = opts[:savings],
-                          paired = opts[:paired])
+                          paired = opts[:paired],
+                          common_draws = opts[:common_draws])
 
-    design = design_columns(scenario, r, ri.p)
+    design = design_columns(scenario, r, ri.p, opts[:tag])
     stats  = NamedTuple{RESULT_COLUMNS}(Tuple(getproperty(res, k) for k in RESULT_COLUMNS))
 
     # The perfect index (pr = re = 1) is solved once but belongs to both arms, so
@@ -205,6 +232,8 @@ function main(args)
             "  seed = ", opts[:seed], "  savings = ", opts[:savings],
             opts[:paired] ? "" : "  (unpaired)")
     println("threads    ", Threads.nthreads())
+    println("results    ", isempty(opts[:tag]) ? "results_index/<scenario>/  (production)" :
+                           "results_index/<scenario>$(opts[:tag])/  (preliminary)")
     println("output     ", opts[:out])
     opts[:quick] && println("QUICK MODE - these numbers are a plumbing check, not a result")
     println("=" ^ 70)
@@ -213,7 +242,7 @@ function main(args)
     skipped = String[]
 
     for (i, scenario) in enumerate(scenarios)
-        st = solution_status(scenario)
+        st = solution_status(scenario, opts[:tag])
         if !st.ok
             @warn "skipping $scenario: $(st.why)"
             push!(skipped, scenario)
@@ -231,8 +260,10 @@ function main(args)
 
     println("\n", "=" ^ 70)
     if isempty(rows)
-        println("no scenarios could be run.  Solutions live in results_index/; ",
-                "run `make sync_index` first.")
+        println("no scenarios could be run.  Solutions live in results_index/",
+                isempty(opts[:tag]) ? "<scenario>/" : "<scenario>$(opts[:tag])/", "; ",
+                isempty(opts[:tag]) ? "run `make sync_index` first." :
+                "run `make run_index_cheap PARAMS=<scenario>` first.")
         return 1
     end
 

@@ -1,0 +1,44 @@
+#####################################################################
+#####################################################################
+### Preliminary ("cheaper") grid sizes for the index insurance model.
+###
+### A roughly 10x lighter grid than index_model/config.toml, for
+### getting directional results on one scenario quickly:
+###
+###     make run_index_cheap PARAMS=no_RA_int_pr60_re100
+###
+### Solve cost scales as (states x actions x quadrature nodes):
+###
+###                cheaper   production
+###   states         2464       6000       Ns*Nb*NDb*2
+###   actions         240        600       Nk*Neta
+###   quad nodes        6         10       Nquad
+###                  ------------------
+###   relative        0.10x      1.00x
+###
+### THE [output] TAG IS WHAT MAKES THIS SAFE.  The runners write to
+### results_index/<scenario><tag>/, so a solve on these sizes lands in
+### results_index/<scenario>_cheaper/ and cannot overwrite the
+### production solution.  The tag lives in this file rather than in a
+### separate command line flag precisely so the two cannot drift apart:
+### there is no way to select the cheap sizes without also selecting
+### the cheap output directory.  Do not remove it.
+###
+### Preliminary numbers are DIRECTIONAL.  Ns 20 -> 14 coarsens the
+### savings axis, which is what drives bankruptcy timing, so re-check
+### anything load bearing at production resolution before it goes near
+### the manuscript.
+### Jack H. Buckner, Oregon State University, 2026
+#####################################################################
+#####################################################################
+
+[output]
+tag = "_cheaper"
+
+[sizes]
+"Nκ"  = 20     # consumption share κ  (action grid;  production 30)
+"Nη"  = 12     # premium share η      (action grid;  production 20)
+"Ns"  = 14     # log savings s        (state grid;   production 20)
+"Nb"  = 11     # log biomass b        (state grid;   production 15)
+"NΔb" =  8     # change in log biomass (state grid;  production 10)
+Nquad =  6     # quadrature nodes for the recruitment/price shocks (production 10)

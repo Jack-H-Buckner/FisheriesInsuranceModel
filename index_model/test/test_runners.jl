@@ -89,6 +89,60 @@ const TINY = (Nκ = 5, Nη = 4, Ns = 4, Nb = 4, NΔb = 3, Nquad = 4)
         @test isempty(intersect(no_RA, RA))
     end
 
+    @testset "a tagged config writes to its own directories" begin
+        # The whole point: a preliminary solve on config_cheaper.toml must not be
+        # able to land on top of a production solution.
+        @test basename(output_dir("no_RA_int_pr60_re100"; insurance = true,
+                                  tag = "_cheaper")) == "no_RA_int_pr60_re100_cheaper"
+        @test basename(output_dir("no_RA_int_pr60_re100"; insurance = false,
+                                  tag = "_cheaper")) ==
+              "no_insurance_no_RA_intermidiate_cheaper"
+        # the tagged and untagged trees never collide
+        for ins in (true, false)
+            @test output_dir("no_RA_int_pr60_re100"; insurance = ins) !=
+                  output_dir("no_RA_int_pr60_re100"; insurance = ins, tag = "_cheaper")
+        end
+        # an empty tag is byte identical to no tag at all, so production paths
+        # are untouched by the mechanism existing
+        @test output_dir("no_RA_int_pr60_re100"; insurance = true, tag = "") ==
+              output_dir("no_RA_int_pr60_re100"; insurance = true)
+
+        # the runner picks the tag up from the config, never from its own
+        # argument list, so the sizes and the destination cannot drift apart
+        a = parse_runner_args(["no_RA_int_pr60_re100"])
+        @test a.tag == ""
+        cheaper = joinpath(@__DIR__, "..", "config_cheaper.toml")
+        b = parse_runner_args(["no_RA_int_pr60_re100", cheaper])
+        @test b.tag == "_cheaper"
+        @test b.sizes == read_grid_config(cheaper)
+        @test b.sizes != GRID_DEFAULTS
+    end
+
+    @testset "a tagged solve is self describing and loads back" begin
+        root = mktempdir()
+        include(joinpath(@__DIR__, "..", "parameters", "no_RA_int_pr60_re100.jl"))
+        _, g, outdir = solve_scenario(p, "no_RA_int_pr60_re100"; insurance = true,
+                                      plots = false, tag = "_cheaper",
+                                      outdir = joinpath(root, "cheap"), TINY...)
+
+        meta = read_grid_meta(joinpath(outdir, "grid.toml"))
+        @test meta_tag(meta) == "_cheaper"
+        # the SCENARIO name stays bare: grids_from_meta re-derives the state
+        # bounds from it by substring match, and scenario_row looks the contract
+        # design up by it
+        @test meta["scenario"] == "no_RA_int_pr60_re100"
+        @test scenario_row(meta["scenario"]).pr == 0.6
+        @test assert_grid_match(meta, g) === nothing
+
+        # an untagged solve records the empty tag, so old and new metadata agree
+        _, _, plain = solve_scenario(p, "no_RA_int_pr60_re100"; insurance = true,
+                                     plots = false, outdir = joinpath(root, "plain"),
+                                     TINY...)
+        @test meta_tag(read_grid_meta(joinpath(plain, "grid.toml"))) == ""
+        # ... and metadata predating the tag reads as production
+        @test meta_tag(Dict("scenario" => "x")) == ""
+    end
+
     @testset "no insurance solution is invariant to the contract" begin
         # This is what makes one no insurance solve per base legitimate rather
         # than a shortcut.  Two scenarios on the same base, with very different

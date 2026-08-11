@@ -30,7 +30,10 @@ function parse_runner_args(args)
         RUNNER_USAGE))
     params = String(args[1])
     config = length(args) == 2 ? String(args[2]) : GRID_CONFIG_PATH
-    return (params = params, config = config, sizes = read_grid_config(config))
+    # The output tag comes from the config too, never from its own argument, so
+    # the sizes and the directory they land in cannot be chosen independently.
+    return (params = params, config = config,
+            sizes = read_grid_config(config), tag = read_output_tag(config))
 end
 
 
@@ -38,12 +41,47 @@ results_root() = joinpath(normpath(joinpath(@__DIR__, "..")), "results_index")
 
 # The insurance solve is keyed on the scenario; the no insurance solve collapses
 # to one directory per base parameter set (see no_insurance_name).
-output_dir(params; insurance) =
-    joinpath(results_root(), insurance ? params : no_insurance_name(params))
+#
+# `tag` is the suffix declared by the config the solve ran on: production solves
+# use "" and keep their bare names, while a preliminary solve on
+# config_cheaper.toml lands in results_index/<scenario>_cheaper/ and so cannot
+# overwrite the production solution.
+output_dir(params; insurance, tag::AbstractString = "") =
+    joinpath(results_root(), (insurance ? params : no_insurance_name(params)) * tag)
+
+
+# A solve overwrites whatever is already in its output directory, and rewrites
+# grid.toml alongside, so the result stays self consistent and assert_grid_match
+# has nothing to catch.  That is fine when re-solving on the same grid, and is
+# how a preliminary and a production solve are kept apart (different tags, so
+# different directories).  It is NOT fine when it happens by accident, so say so
+# loudly.  A warning rather than an error: re-solving after a deliberate config
+# change is legitimate, and a job that dies here has wasted a queue slot.
+function warn_on_regrid(outdir, g)
+    meta_path = joinpath(outdir, "grid.toml")
+    isfile(meta_path) || return nothing
+    old = try
+        read_grid_meta(meta_path)
+    catch
+        return nothing            # unreadable metadata is not this check's job
+    end
+    recorded = get(old, "sizes", nothing)
+    recorded isa AbstractDict || return nothing
+
+    changed = [string(k) for (k, v) in pairs(g.sizes) if get(recorded, string(k), nothing) != v]
+    isempty(changed) && return nothing
+
+    @warn """
+          overwriting an existing solution that was solved on a DIFFERENT grid.
+          If this was not intended, the usual cause is running a preliminary
+          config without its [output] tag, which puts cheap results in a
+          production directory.""" dir = outdir differing = changed
+    return nothing
+end
 
 
 """
-    solve_scenario(p, params; insurance = true, plots = true, sizes...)
+    solve_scenario(p, params; insurance = true, plots = true, tag = "", sizes...)
 
 Solve one index insurance scenario and write the solution, the grid metadata
 and the diagnostic plots to `results_index/`.
@@ -56,16 +94,19 @@ function solve_scenario(p, params::AbstractString;
                         plots::Bool = true,
                         maxiter = nothing,
                         outdir = nothing,
+                        tag::AbstractString = "",
                         sizes...)
 
     g = build_grids(params; insurance = insurance, sizes...)
-    outdir = something(outdir, output_dir(params; insurance = insurance))
+    outdir = something(outdir, output_dir(params; insurance = insurance, tag = tag))
+    warn_on_regrid(outdir, g)
     mkpath(outdir)   # mkpath, not mkdir: race safe when jobs start together
 
     println("=" ^ 70)
     println("scenario   ", params)
     println("mode       ", insurance ? "with insurance" : "no insurance")
     println("output     ", outdir)
+    isempty(tag) || println("tag        ", tag, "  (preliminary; not a production result)")
     println("threads    ", Threads.nthreads())
     println("=" ^ 70)
     print_grid(g)
@@ -86,7 +127,7 @@ function solve_scenario(p, params::AbstractString;
     # Save before plotting: a plotting failure must not throw away a solve that
     # may have taken hours.
     save_solution(prob, joinpath(outdir, "sol.jld2"))
-    write_grid_meta(joinpath(outdir, "grid.toml"), g, p, params)
+    write_grid_meta(joinpath(outdir, "grid.toml"), g, p, params; tag = tag)
     println("wrote ", joinpath(outdir, "sol.jld2"), " and grid.toml")
 
     if plots

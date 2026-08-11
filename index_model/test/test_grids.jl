@@ -111,6 +111,50 @@ const SCEN = "no_RA_int_pr60_re100"
         @test_throws ArgumentError read_grid_config(write_cfg("[sizes]\nNκ = 10\n"))
     end
 
+    @testset "the output tag travels with the config" begin
+        # The tag is declared in the config rather than passed separately so the
+        # grid sizes and the directory they are written to cannot be chosen
+        # independently; a preliminary solve is then unable to overwrite the
+        # production solution it sits beside.
+        write_cfg(body) = (p = joinpath(mktempdir(), "config.toml"); write(p, body); p)
+        sizes = """
+                [sizes]
+                "Nκ" = 10
+                "Nη" = 4
+                "Ns" = 6
+                "Nb" = 6
+                "NΔb" = 5
+                Nquad = 7
+                """
+
+        # production: no [output] table, so no suffix and bare directory names
+        @test read_output_tag() == ""
+        @test read_output_tag(write_cfg(sizes)) == ""
+
+        cheap = write_cfg("[output]\ntag = \"_cheaper\"\n\n" * sizes)
+        @test read_output_tag(cheap) == "_cheaper"
+        # the sizes still read normally out of a tagged config
+        @test read_grid_config(cheap) == (Nκ = 10, Nη = 4, Ns = 6, Nb = 6, NΔb = 5, Nquad = 7)
+
+        # the committed cheaper config is the real thing this exists for
+        cheaper_path = joinpath(@__DIR__, "..", "config_cheaper.toml")
+        @test read_output_tag(cheaper_path) == "_cheaper"
+        cheap_sizes = read_grid_config(cheaper_path)
+        @test keys(cheap_sizes) == SIZE_KEYS
+        # ... and it must actually be cheaper than production in every dimension
+        @test all(cheap_sizes[k] < GRID_DEFAULTS[k] for k in SIZE_KEYS)
+
+        # A misspelt table would otherwise read as "no tag", sending a cheap
+        # solve into the production directory.  This is the check that stops it.
+        @test_throws ArgumentError read_output_tag(write_cfg("[outupt]\ntag = \"x\"\n" * sizes))
+        @test_throws ArgumentError read_grid_config(write_cfg("[outupt]\ntag = \"x\"\n" * sizes))
+        @test_throws ArgumentError read_output_tag(write_cfg("[output]\ntagg = \"x\"\n" * sizes))
+        @test_throws ArgumentError read_output_tag(write_cfg("[output]\ntag = 3\n" * sizes))
+        # the tag becomes a directory name, so it must not be able to walk out
+        @test_throws ArgumentError read_output_tag(write_cfg("[output]\ntag = \"../x\"\n" * sizes))
+        @test_throws ArgumentError read_output_tag(write_cfg("[output]\ntag = \"..\"\n" * sizes))
+    end
+
     @testset "life history selection matches src/run.jl" begin
         @test life_history("no_RA_int_pr60_re100") === :intermediate
         @test life_history("no_RA_short_pr60_re100") === :short

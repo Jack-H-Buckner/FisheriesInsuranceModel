@@ -62,6 +62,28 @@ end
         @test_throws ErrorException rebuild_problem(SCEN; dir = mktempdir())
     end
 
+    @testset "the tag routes rebuild_problem to the right tree" begin
+        # A preliminary solve and a production solve of the same scenario coexist
+        # in results_index/; the tag is what decides which one the analysis reads.
+        meta = read_grid_meta(joinpath(WORKDIR, "ins", "grid.toml"))
+        @test meta_tag(meta) == ""      # solved untagged, so it is production
+
+        # loading a production solution as if it were preliminary must raise
+        # rather than quietly return the wrong numbers
+        @test_throws ErrorException rebuild_problem(SCEN; dir = joinpath(WORKDIR, "ins"),
+                                                    tag = "_cheaper")
+
+        # and with no solve present under the tag, the error names the tag so it
+        # is obvious which tree is missing
+        err = try
+            rebuild_problem("no_RA_int_pr100_re100"; tag = "_no_such_tag")
+        catch e
+            e
+        end
+        @test err isa ErrorException
+        @test occursin("_no_such_tag", sprint(showerror, err))
+    end
+
     @testset "parameter mismatch is caught" begin
         meta = read_grid_meta(joinpath(WORKDIR, "ins", "grid.toml"))
         good = scenario_parameters(SCEN)

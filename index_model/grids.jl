@@ -49,18 +49,14 @@ const SIZE_NAMES = merge(Dict(string(k) => k for k in SIZE_KEYS),
 # Nquad is a node count, the rest are grid point counts and gridrange needs 2.
 min_size(k::Symbol) = k === :Nquad ? 1 : 2
 
+# Tables a config file may contain.  [sizes] is the grid; [output] carries the
+# suffix appended to this config's results directories (see read_output_tag).
+const CONFIG_TABLES = ("sizes", "output")
 
-"""
-    read_grid_config(path = GRID_CONFIG_PATH)
 
-Read the grid sizes from a config file and return them as a NamedTuple ready to
-splat into `build_grids` or `solve_scenario`.
-
-Every size must be present: a partially specified config would silently mix
-configured and default sizes, which is the failure this file exists to prevent.
-Unknown keys are an error too, so a typo is caught rather than ignored.
-"""
-function read_grid_config(path::AbstractString = GRID_CONFIG_PATH)
+# Shared by read_grid_config and read_output_tag so a config is parsed and
+# validated the same way whichever one asks for it first.
+function parse_config(path::AbstractString)
     isfile(path) || throw(ArgumentError(
         "no grid config at $path; the index model reads its grid sizes from " *
         "index_model/config.toml"))
@@ -74,6 +70,31 @@ function read_grid_config(path::AbstractString = GRID_CONFIG_PATH)
             "note: TOML bare keys are ASCII only, so Greek names must be quoted, " *
             "as in \"Nκ\" = 35"))
     end
+
+    # Strict, and load bearing: a config whose table is misspelt `[outupt]`
+    # would otherwise be read as having no tag at all, and a cheap solve would
+    # silently overwrite the production solution it was meant to sit beside.
+    for name in keys(cfg)
+        name in CONFIG_TABLES || throw(ArgumentError(
+            "unknown table `[$name]` in $path; expected " *
+            join(["[$t]" for t in CONFIG_TABLES], " or ")))
+    end
+    return cfg
+end
+
+
+"""
+    read_grid_config(path = GRID_CONFIG_PATH)
+
+Read the grid sizes from a config file and return them as a NamedTuple ready to
+splat into `build_grids` or `solve_scenario`.
+
+Every size must be present: a partially specified config would silently mix
+configured and default sizes, which is the failure this file exists to prevent.
+Unknown keys are an error too, so a typo is caught rather than ignored.
+"""
+function read_grid_config(path::AbstractString = GRID_CONFIG_PATH)
+    cfg = parse_config(path)
 
     sizes = get(cfg, "sizes", nothing)
     sizes isa AbstractDict || throw(ArgumentError(
@@ -105,6 +126,39 @@ end
 # Sizes used when a caller does not pass its own.  Read once, at include time,
 # so the runners, the tests and every analysis script agree by construction.
 const GRID_DEFAULTS = read_grid_config()
+
+
+"""
+    read_output_tag(path = GRID_CONFIG_PATH)
+
+Suffix appended to the results directories of solves run on this config, from
+its `[output] tag` key.  `""` when there is no `[output]` table, which is the
+case for the committed `config.toml` - production results keep their bare names.
+
+The tag lives in the config rather than in a separate command line argument so
+that the grid sizes and the directory they are written to cannot be selected
+independently: a preliminary solve on a lighter grid is physically unable to
+overwrite the production solution it sits beside.  See config_cheaper.toml.
+"""
+function read_output_tag(path::AbstractString = GRID_CONFIG_PATH)
+    out = get(parse_config(path), "output", nothing)
+    out === nothing && return ""
+    out isa AbstractDict || throw(ArgumentError("[output] in $path must be a table"))
+
+    for name in keys(out)
+        name == "tag" || throw(ArgumentError(
+            "unknown key `$name` in [output] of $path; the only key is `tag`"))
+    end
+
+    tag = get(out, "tag", "")
+    tag isa AbstractString || throw(ArgumentError(
+        "[output] tag in $path must be a string, got $(repr(tag))"))
+    # The tag becomes part of a directory name, so it must not be able to walk
+    # out of results_index/ or split into a subdirectory.
+    (occursin('/', tag) || occursin('\\', tag) || tag == ".." ) && throw(ArgumentError(
+        "[output] tag in $path must be a plain name fragment, got $(repr(tag))"))
+    return String(tag)
+end
 
 
 # Life history is selected by substring match on the scenario name, exactly as
@@ -216,10 +270,16 @@ parameter set to confirm an analysis script is reading the solution it thinks
 it is.  `save_solution` persists only V and P, so this is the record of
 everything else.
 """
-function grid_meta(g, p, params::AbstractString)
+function grid_meta(g, p, params::AbstractString; tag::AbstractString = "")
     mc = marginal_chain(p.T)
     return Dict(
+        # `scenario` is the BARE name, never the tagged one: grids_from_meta
+        # re-derives the state bounds from it by substring match, and
+        # assert_parameters_match looks the contract design up by it.  The tag
+        # is recorded separately, so a solution says which tree it belongs to
+        # without confusing anything that keys off the scenario.
         "scenario"     => params,
+        "tag"          => tag,
         "insurance"    => g.insurance,
         "delta"        => g.δ,
         "life_history" => g.life_history,
@@ -246,8 +306,13 @@ function grid_meta(g, p, params::AbstractString)
     )
 end
 
-write_grid_meta(path::AbstractString, g, p, params::AbstractString) =
-    open(io -> TOML.print(io, grid_meta(g, p, params)), path, "w")
+write_grid_meta(path::AbstractString, g, p, params::AbstractString;
+                tag::AbstractString = "") =
+    open(io -> TOML.print(io, grid_meta(g, p, params; tag = tag)), path, "w")
+
+# Tag a solution was written under.  Solutions produced before the tag existed
+# have no such key and are production, so "" is the right default.
+meta_tag(meta::AbstractDict) = get(meta, "tag", "")
 
 read_grid_meta(path::AbstractString) = TOML.parsefile(path)
 

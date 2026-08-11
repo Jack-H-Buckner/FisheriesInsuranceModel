@@ -72,12 +72,45 @@ const BANKRUPTCY_SETTINGS = (
 # One trajectory
 # ------------------------------------------------------------------
 
-# A fresh shock sampler.  `Nquad` sizes the Gauss Hermite quadrature object that
-# init_ranom_variables also builds and that is discarded here: the Bellman step
-# uses prob.X, built by rebuild_problem at the solved Nquad, while the realised
-# shocks come from this MCRandomVariable, whose sampler draws the recruitment
-# deviation directly.  So a small Nquad costs nothing and changes nothing.
-new_shocks(p) = init_ranom_variables(p; Nquad = 2)[2]
+# A fresh shock sampler for one trajectory.
+#
+# `common = true` (the default) is what makes a seed mean the same draws in
+# EVERY scenario, so P10 can be compared across the sweep without the
+# comparison carrying its own Monte Carlo noise.  Two constructions:
+#
+#   common = false   init_ranom_variables' own Xmc.  Its mortality component is
+#                    a MarkovChain(p.T), whose nodes are the distinct cumulative
+#                    probabilities of T and whose weights are the gaps between
+#                    them; a draw picks a node index.  The NUMBER of nodes
+#                    depends on the contract - 5 at pr = re = 1, 6 at
+#                    (0.6, 1.0), 8 at (0.5, 0.5) - so each period consumes a
+#                    different amount of the RNG stream and two scenarios run
+#                    from the same seed diverge immediately.
+#
+#   common = true    the same shocks, but with the mortality row drawn as a raw
+#                    uniform.  `sample_markov_chain(x, T, rng)` wants a uniform
+#                    on (0,1) and MarkovChain exists only to emulate one with a
+#                    fixed node set (see its docstring), so this is exactly the
+#                    same distribution - the node whose interval contains U and
+#                    U itself give the identical `sample_discrete` result,
+#                    because the node set is the union of every column's
+#                    breakpoints.  Consumption per period is now one normal and
+#                    two uniforms regardless of the contract.
+#
+# What that buys, given the sweep holds the marginal mortality chain fixed: the
+# joint state is ordered (M=1,x=1), (M=1,x=2), (M=2,x=1), (M=2,x=2), so the
+# mortality split of column M always falls at the cumulative 1 - p_low no
+# matter how the payout mass is divided within each block.  Under a shared U
+# the realised mortality path - and hence the whole biological trajectory - is
+# IDENTICAL across scenarios, while the payout indicator still varies with the
+# contract, which is the one thing that should vary.
+function new_shocks(p; common::Bool = true)
+    common || return init_ranom_variables(p; Nquad = 2)[2]
+    # Rows 1:4 match init_ranom_variables' sampler exactly; row 5 replaces the
+    # MarkovChain node with the uniform it stands in for.
+    sampler() = [p.μZ, p.μ_P, p.μ_Ce, rand(Distributions.Normal(0, p.σ_R)), rand()]
+    return MCRandomVariable(sampler, 1)
+end
 
 
 """
@@ -134,6 +167,7 @@ function bankruptcy_paths(prob_ins, prob_no;
                           seed            = BANKRUPTCY_SETTINGS.seed,
                           s0_savings      = BANKRUPTCY_SETTINGS.s0_savings,
                           paired::Bool    = true,
+                          common_draws::Bool = true,
                           verbose::Bool   = true)
 
     assert_comparable(prob_ins, prob_no)
@@ -149,7 +183,8 @@ function bankruptcy_paths(prob_ins, prob_no;
 
     verbose && println("simulating ", N, " paired trajectories of ", T,
                        " periods on ", Threads.nthreads(), " threads",
-                       paired ? " (common random numbers)" : "")
+                       paired ? " (common random numbers)" : "",
+                       common_draws ? "" : " (scenario specific draws)")
 
     # Per trajectory seeding.  Random.seed! seeds the TASK local default RNG,
     # and Threads.@threads runs each chunk of iterations as one task, so seeding
@@ -161,7 +196,7 @@ function bankruptcy_paths(prob_ins, prob_no;
 
         # One sampler per trajectory: simulate mutates it in place, so a shared
         # one would be a data race across threads.
-        Xmc = new_shocks(p)
+        Xmc = new_shocks(p; common = common_draws)
         s0 = stationary_start(p, Xmc, burnin; savings = s0_savings)
         s0_all[:, i] .= s0
 
@@ -326,15 +361,17 @@ function bankruptcy_rate(prob_ins, prob_no;
                          boot_seed     = BANKRUPTCY_SETTINGS.boot_seed,
                          s0_savings    = BANKRUPTCY_SETTINGS.s0_savings,
                          paired::Bool  = true,
+                         common_draws::Bool = true,
                          verbose::Bool = true)
 
     t0 = time()
     paths = bankruptcy_paths(prob_ins, prob_no; N = N, T = T, burnin = burnin,
                              seed = seed, s0_savings = s0_savings,
-                             paired = paired, verbose = verbose)
+                             paired = paired, common_draws = common_draws,
+                             verbose = verbose)
     res = hazard_rates(paths; B = B, horizon = horizon, boot_seed = boot_seed)
     res = merge(res, (T = T, seed = seed, paired = paired,
-                      s0_savings = s0_savings,
+                      common_draws = common_draws, s0_savings = s0_savings,
                       minutes = (time() - t0) / 60))
     verbose && print_bankruptcy(res)
     return res
@@ -342,14 +379,20 @@ end
 
 
 """
-    bankruptcy_rate(scenario; kwargs...)
+    bankruptcy_rate(scenario; tag = "", kwargs...)
 
 Convenience method: rebuild `scenario` and its base's shared no insurance
 solution from `results_index/`, then run the calculation.
+
+`tag` selects the results tree - `""` for production, `"_cheaper"` for a
+preliminary solve.  It applies to BOTH solutions, which is what makes a
+half-migrated pair impossible here; pairing a cheap insurance solve with a
+production no insurance solve would in any case be caught by
+`assert_comparable`, since the two would be on different state grids.
 """
-function bankruptcy_rate(scenario::AbstractString; kwargs...)
-    r  = rebuild_problem(scenario)
-    r0 = rebuild_problem(scenario; insurance = false)
+function bankruptcy_rate(scenario::AbstractString; tag::AbstractString = "", kwargs...)
+    r  = rebuild_problem(scenario; tag = tag)
+    r0 = rebuild_problem(scenario; insurance = false, tag = tag)
     return bankruptcy_rate(r.prob, r0.prob; kwargs...)
 end
 

@@ -86,21 +86,35 @@ end
 
 
 """
-    rebuild_problem(scenario; insurance = true)
+    rebuild_problem(scenario; insurance = true, tag = "")
 
 Rebuild the dynamic program for `scenario` and load its solved value function.
+
+`tag` selects which results tree to read: `""` is production, and `"_cheaper"`
+picks up a preliminary solve run on `index_model/config_cheaper.toml`.  It has
+to be given here because, unlike the runners, the analysis reads no config file
+- it rebuilds each problem from the `grid.toml` written next to its solution.
 
 Returns `(prob, p, g, X, Xmc, meta, dir)`.  Raises if the grid or the parameters
 recorded next to the solution disagree with what is rebuilt here.
 """
-function rebuild_problem(scenario::AbstractString; insurance::Bool = true, dir = nothing)
-    dir = something(dir, output_dir(scenario; insurance = insurance))
+function rebuild_problem(scenario::AbstractString; insurance::Bool = true,
+                         dir = nothing, tag::AbstractString = "")
+    dir = something(dir, output_dir(scenario; insurance = insurance, tag = tag))
     sol = joinpath(dir, "sol.jld2")
     isfile(sol) || throw(ErrorException(
         "no solution at $sol; run index_model/run" *
-        (insurance ? "" : "_no_insurance") * ".jl for $scenario first"))
+        (insurance ? "" : "_no_insurance") * ".jl for $scenario" *
+        (isempty(tag) ? "" : " on the config carrying tag \"$tag\"") * " first"))
 
     meta = read_grid_meta(joinpath(dir, "grid.toml"))
+    # Belt and braces for the case the tag mechanism exists to prevent: a
+    # solution sitting in a directory that does not match the tree it was
+    # solved for.  Only reachable by hand editing or by an explicit `dir`.
+    meta_tag(meta) == tag || throw(ErrorException(
+        "the solution in $dir was written with tag $(repr(meta_tag(meta))) but " *
+        "was loaded as $(repr(tag)); a preliminary and a production solve have " *
+        "been mixed up"))
     p = scenario_parameters(scenario)
     g = grids_from_meta(meta)                       # asserts grid + bounds
     assert_parameters_match(meta, p; insurance = insurance)

@@ -68,6 +68,53 @@ const SMALL = (N = 6, T = 40, B = 200)
         @test_throws ArgumentError stationary_start(RI.p, Xmc, 5; savings = RI.p.s̄)
     end
 
+    @testset "draws are common across parameter sets" begin
+        # The point of common_draws: a seed means the same shocks in every
+        # scenario, so P10 can be compared across the sweep without the
+        # comparison carrying its own Monte Carlo noise.
+        pA = scenario_parameters("no_RA_int_pr60_re100")   # 6 MarkovChain nodes
+        pB = scenario_parameters("no_RA_int_pr50_re50")    # 8 nodes
+        pC = scenario_parameters("no_RA_int_pr100_re100")  # 5 nodes
+        @test pA.T != pB.T                                 # genuinely different contracts
+
+        path(p; common = true, seed = 5, n = 60) = begin
+            Random.seed!(seed)
+            stationary_start(p, new_shocks(p; common = common), n)
+        end
+
+        # The sweep holds the marginal mortality chain fixed, and the joint
+        # state is ordered so that the mortality split of each column falls at
+        # the cumulative 1 - p_low whatever the contract does with the payout
+        # mass.  Under a shared uniform the whole biological trajectory - stock,
+        # lagged stock and mortality state - is therefore IDENTICAL.
+        @test path(pA) == path(pB) == path(pC)
+
+        # ... and without it they diverge, because MarkovChain's node count
+        # depends on T, so each scenario consumes the RNG stream differently
+        @test path(pA; common = false) != path(pB; common = false)
+
+        # the shocks themselves must still be the right distribution: rows 1:3
+        # are the fixed means, row 4 the recruitment deviation, row 5 a uniform
+        Random.seed!(1)
+        X = new_shocks(pA)
+        @test size(X.nodes) == (5, 1)
+        @test X.weights == [1.0]
+        draws = [(X(); copy(X.nodes[:, 1])) for _ in 1:400]
+        @test all(d -> d[1:3] == [pA.μZ, pA.μ_P, pA.μ_Ce], draws)
+        @test all(d -> 0 <= d[5] <= 1, draws)
+        @test isapprox(mean(d[5] for d in draws), 0.5; atol = 0.05)
+        @test isapprox(std(d[4] for d in draws), pA.σ_R; rtol = 0.15)
+
+        # What must NOT be common is the payout: that is the contract.  With the
+        # same uniform, a draw between the two contracts' payout breakpoints
+        # lands in a payout state under one and not the other.
+        s = [1.0, 0.0, 0.0, 0.0, 1.0]
+        differs = any(u -> index(s, [0.0, 0.0, 0.0, 0.0, u], pA) !=
+                           index(s, [0.0, 0.0, 0.0, 0.0, u], pB),
+                      range(0.955, 0.999, length = 200))
+        @test differs
+    end
+
     @testset "paths are reproducible under threading" begin
         a = bankruptcy_paths(RI.prob, RI0.prob; N = SMALL.N, T = SMALL.T,
                              seed = 7, verbose = false)

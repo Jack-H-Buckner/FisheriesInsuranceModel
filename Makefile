@@ -61,6 +61,13 @@ all:
 	@echo "	make index_errors                       only the jobs that failed "
 	@echo "	make index_results                      what has landed in results_index/ "
 	@echo ""
+	@echo "    preliminary run on a ~10x cheaper grid (one scenario at a time): "
+	@echo ""
+	@echo "	make run_index_cheap PARAMS=<SCENARIO>   both solves, on the cluster "
+	@echo "	make bankruptcy_cheap PARAMS=<SCENARIO>  the metric, locally "
+	@echo "	                                        -> results_index/<SCENARIO>_cheaper/ "
+	@echo "	                                        -> index_bankruptcy_cheaper.csv "
+	@echo ""
 	@echo "    index insurance analysis - bankruptcy rates, on the cluster: "
 	@echo ""
 	@echo "	make bankruptcy_jobs                    list what would be submitted "
@@ -162,6 +169,45 @@ run_index_params:
 
 run_index_no_insurance_params:
 	hqsub -P $(PROCS) "julia --project=$(IDX_ROOT) --threads=$(PROCS) $(IDX_ROOT)/index_model/run_no_insurance.jl ${PARAMS}" -r solve-index-no-insurance-${PARAMS}-StdOut -q ceoas@$(NODE)
+
+
+################################################
+### Preliminary solves on a cheaper grid
+###
+### index_model/config_cheaper.toml holds a ~10x lighter grid, for
+### getting directional results on one scenario without waiting for a
+### production solve.
+###
+### It also carries an [output] tag, and that is what keeps this safe:
+### the runners write to results_index/<scenario><tag>/, so a cheap
+### solve lands in results_index/<scenario>_cheaper/ and CANNOT
+### overwrite the production solution.  The tag lives in the config
+### rather than in a separate flag here precisely so the two cannot be
+### chosen independently.
+###
+###   make run_index_cheap PARAMS=no_RA_int_pr60_re100     (cluster)
+###   make bankruptcy_cheap PARAMS=no_RA_int_pr60_re100    (locally)
+###
+### Preliminary numbers are DIRECTIONAL - Ns 20 -> 14 coarsens the
+### savings axis that drives bankruptcy timing.  Re-check anything load
+### bearing at production resolution.
+################################################
+
+IDX_CHEAP_CONFIG=$(IDX_ROOT)/index_model/config_cheaper.toml
+IDX_CHEAP_TAG=_cheaper
+
+# The insurance solve.  Named ...${PARAMS}_cheaper-StdOut so it still shows up
+# in `make index_status` alongside the production jobs.
+run_index_cheap_params:
+	hqsub -P $(PROCS) "julia --project=$(IDX_ROOT) --threads=$(PROCS) $(IDX_ROOT)/index_model/run.jl ${PARAMS} $(IDX_CHEAP_CONFIG)" -r solve-index-${PARAMS}$(IDX_CHEAP_TAG)-StdOut -q ceoas@$(NODE)
+
+run_index_cheap_no_insurance_params:
+	hqsub -P $(PROCS) "julia --project=$(IDX_ROOT) --threads=$(PROCS) $(IDX_ROOT)/index_model/run_no_insurance.jl ${PARAMS} $(IDX_CHEAP_CONFIG)" -r solve-index-no-insurance-${PARAMS}$(IDX_CHEAP_TAG)-StdOut -q ceoas@$(NODE)
+
+# BOTH solves for one scenario.  This is the target to use: the bankruptcy
+# metric contrasts an insurance solve against a no-insurance one on the SAME
+# grid, so submitting only the first leaves nothing to compare against.
+run_index_cheap: run_index_cheap_params run_index_cheap_no_insurance_params
 
 # The whole sweep, no insurance first so a mistake in the cheap jobs surfaces
 # before the expensive ones queue.
@@ -304,6 +350,12 @@ analysis_index_bankruptcy_quick:
 
 analysis_index_bankruptcy_params:
 	julia --project=. --threads=$(IDX_THREADS) index_model/analysis/run_bankruptcy.jl ${PARAMS} $(BANKRUPTCY_ARGS)
+
+# The preliminary counterpart: reads results_index/<scenario>_cheaper/ and
+# writes manuscript_index/index_bankruptcy_cheaper.csv, so it cannot overwrite
+# the production table.  Run this after `make run_index_cheap` has landed.
+bankruptcy_cheap:
+	julia --project=. --threads=$(IDX_THREADS) index_model/analysis/run_bankruptcy.jl ${PARAMS} --tag=$(IDX_CHEAP_TAG) $(BANKRUPTCY_ARGS)
 
 test_index:
 	julia --project=. --threads=$(IDX_THREADS) index_model/test/test_transitions.jl

@@ -32,11 +32,12 @@ include(joinpath(@__DIR__, "parameters", "generate_scenarios.jl"))
 
 args = parse_runner_args(ARGS)   # also reads and validates the grid config
 scenario_row(args.params)        # fail fast on a typo, before loading anything
-println("grid sizes from ", args.config)
+println("grid sizes from ", args.config,
+        isempty(args.tag) ? "" : "  (output tag \"$(args.tag)\")")
 
 # Included at top level, not inside solve_scenario: a parameter file loaded
 # during a function call would add its methods in a newer world age than the
 # running caller.  This defines `p`.
 include(joinpath(@__DIR__, "parameters", args.params * ".jl"))
 
-solve_scenario(p, args.params; insurance = true, args.sizes...)
+solve_scenario(p, args.params; insurance = true, tag = args.tag, args.sizes...)
