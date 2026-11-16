@@ -253,6 +253,37 @@ const SMALL = (N = 6, T = 40, B = 200)
         @test_throws ArgumentError write_csv(path, NamedTuple[])
         @test_throws ArgumentError write_csv(path, [(a = 1,), (b = 2,)])
     end
+
+    @testset "read_csv round trip" begin
+        # The composite figure reads these tables back, so what write_csv emits
+        # has to come back as the same values - in particular NA must become NaN
+        # again, not the string "NA", or a degenerate lambda_ratio silently turns
+        # a numeric column into a string one.
+        rows = [(scenario = "a,b", arm = "iso_premium", pr = 1.0, n = 3,
+                 ratio = NaN, paired = true, tag = ""),
+                (scenario = "c", arm = "full_coverage", pr = 0.5, n = 12,
+                 ratio = 0.25, paired = false, tag = "_cheaper")]
+        path = joinpath(WORKDIR, "roundtrip.csv")
+        write_csv(path, rows)
+        back = read_csv(path)
+
+        @test length(back) == 2
+        @test keys(back[1]) == keys(rows[1])
+        @test back[1].scenario == "a,b"          # quoted comma survives
+        @test back[1].pr === 1.0
+        @test back[1].n === 3                    # integers stay integers
+        @test isnan(back[1].ratio)               # NA -> NaN, not "NA"
+        @test back[1].paired === true
+        @test back[2].ratio === 0.25
+        @test back[2].paired === false
+        @test back[2].tag == "_cheaper"
+        @test back[1].tag == ""                  # empty field stays empty
+
+        @test_throws ArgumentError read_csv(joinpath(WORKDIR, "nope.csv"))
+        # a ragged row would silently shift every later column
+        write(path, "a,b,c\n1,2\n")
+        @test_throws ArgumentError read_csv(path)
+    end
 end
 
 

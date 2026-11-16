@@ -1,6 +1,14 @@
 using Pkg
 
-using Plots, CairoMakie, LaTeXStrings
+# CairoMakie was imported here but never called - every panel below is built
+# with Plots - and it is not a dependency of this project, so the import alone
+# made the script fail to load.  Dropped; figure_4.jl is the one that needs it.
+using Plots, LaTeXStrings
+
+# savefig_dpi: savefig, then stamp the PNG pHYs chunk so the file reports the
+# resolution it was rendered at instead of defaulting to 72.  Guarded so that
+# running several figure scripts in one session does not redefine its consts.
+isdefined(Main, :savefig_dpi) || include("../index_model/analysis/png_dpi.jl")
 
 Survival = exp.(-1*[0.4, 0.2, 0.11])
 Value_Bankruptcy = [2.09, 3.46, 2.50]
@@ -114,9 +122,14 @@ Plots.plot!(pltC, ylims = (0, ymax_global))
 
 # Combined panel A + panel B + panel C figure for the manuscript
 fig = Plots.plot(pltA, pltB, pltC, layout = (1, 3), size = (1400, 360),
+    # See figure_3.jl: `size` is inches x 100, so this is 14 x 3.6 in and dpi
+    # only sets how finely it rasterises (300 -> 4200 x 1080 px, 600 real dpi
+    # at a 7 in print width).  The PDF stays vector.
+    dpi = 300,
     titlelocation = :left, titlefontsize = 14,
     left_margin = 10Plots.mm, bottom_margin = 8Plots.mm,
     right_margin = 5Plots.mm, top_margin = 4Plots.mm)
-savefig(fig, "manuscript/figure_5.png")
+savefig_dpi(fig, "manuscript/figure_5.png"; dpi = 300)
+Plots.savefig(fig, "manuscript/figure_5.pdf")
 fig
 

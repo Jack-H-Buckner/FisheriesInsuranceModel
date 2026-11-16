@@ -2,6 +2,40 @@ using Pkg, Random
 using Plots, DataFrames, CSV
 include("../src/model.jl"); include("../src/plotting.jl")
 include("../src/insurnace_contracts.jl")
+
+"""
+    markov_state_mask(nodes, s, T; state)
+
+Mask over the columns of `nodes` whose mortality state NEXT period is `state`,
+given the current state vector `s` and the transition matrix `T`.
+
+ValueFunctionIterations changed how a MarkovChain represents its quadrature
+nodes, and the two `insurance_claims` closures below were written against the
+old representation.  A node is a point in the interval of the unit line that
+`sample_markov_chain` maps to a next state; the old version placed it at the
+interval's ENDPOINT, the current one at its MIDPOINT.  For the mortality chain
+`T = [0.975 0.5; 0.025 0.5]` that is the difference between nodes at
+`[0.5, 0.975, 1.0]` and nodes at `[0.25, 0.7375, 0.9875]`.
+
+So the old `nodes[5,:] .== 1.0` picked out the node sitting on the top endpoint,
+which is the LAST state of the chain - the high mortality event, state 2 - and
+not state 1 as the literal `1.0` suggests.  Under the current nodes it matches
+nothing at all, which is why `coverage_levels` threw a BoundsError on an empty
+node matrix instead of quietly returning the wrong expectation.
+
+Pass `state` explicitly; the figure 4 panels want `state = 2`, expected claims
+conditional on the high mortality event, which is what the published figure
+shows.
+"""
+function markov_state_mask(nodes, s, T; state)
+    mt = round(Int, s[5])
+    mt in axes(T, 2) ||
+        throw(ArgumentError("mortality state must index one of the $(size(T,2)) " *
+                            "columns of the transition matrix, got $(s[5])"))
+    return [ValueFunctionIterations.sample_markov_chain(mt, T, u) == state
+            for u in view(nodes, 5, :)]
+end
+
 function coverage_levels(params; smax = log(2.0))
     #params = "no_RA_short"
     Nκ = "20"; Nη = "20"; Ns_grid = "20"; Nb_grid = "20"; NΔb_grid = "3"; Nquad = "10"
@@ -84,11 +118,13 @@ function coverage_levels(params; smax = log(2.0))
     η̄_s = reshape(η̄_s,dims...)
     u = [1e-10,0.0]
     function insurance_claims(s)
-        nodes = prob.X(s,prob.p).nodes
-        weights = prob.X(s,prob.p).weights
-        weights = weights[nodes[5,:].==1.0] 
+        rv = prob.X(s,prob.p)
+        # state = 2: the high mortality event.  See markov_state_mask - the old
+        # `nodes[5,:] .== 1.0` selected the chain's last state, not its first.
+        keep = markov_state_mask(rv.nodes, s, prob.p.T; state = 2)
+        weights = rv.weights[keep]
         weights = weights ./ sum(weights)
-        nodes = nodes[:,nodes[5,:].==1.0] 
+        nodes = rv.nodes[:,keep]
         claim = mapslices(x -> index_insurance(index(prob.F(s,u,x,prob.p)[3:5],[0.0]),strike(s,prob.p),1,1), nodes, dims = 1)
         sum(claim' .* weights )
     end 
@@ -183,11 +219,13 @@ function coverage_levels_variable_strike(params; smax = log(2.0))
     η̄_s = reshape(η̄_s,dims...)
     u = [1e-10,0.0]
     function insurance_claims(s)
-        nodes = prob.X(s,prob.p).nodes
-        weights = prob.X(s,prob.p).weights
-        weights = weights[nodes[5,:].==1.0] 
+        rv = prob.X(s,prob.p)
+        # state = 2: the high mortality event.  See markov_state_mask - the old
+        # `nodes[5,:] .== 1.0` selected the chain's last state, not its first.
+        keep = markov_state_mask(rv.nodes, s, prob.p.T; state = 2)
+        weights = rv.weights[keep]
         weights = weights ./ sum(weights)
-        nodes = nodes[:,nodes[5,:].==1.0] 
+        nodes = rv.nodes[:,keep]
         claim = mapslices(x -> index_insurance(index(prob.F(s,u,x,prob.p)[3:5],[0.0]),strike(s[3:5],prob.p),1,1), nodes, dims = 1)
         sum(claim' .* weights )
     end 

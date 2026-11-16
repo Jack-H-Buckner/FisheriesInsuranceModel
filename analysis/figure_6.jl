@@ -1,6 +1,11 @@
 using DataFrames, CSV, Plots
 using Plots.Measures: mm
 
+# savefig_dpi: savefig, then stamp the PNG pHYs chunk so the file reports the
+# resolution it was rendered at instead of defaulting to 72.  Guarded so that
+# running several figure scripts in one session does not redefine its consts.
+isdefined(Main, :savefig_dpi) || include("../index_model/analysis/png_dpi.jl")
+
 # Plot 10-year bankruptcy probabilities (P10) from table 4 as a grouped bar
 # chart: one group per life history, two bars per group (with / without
 # insurance), with whiskers showing the 95% bootstrap CI.
@@ -50,6 +55,10 @@ fig = Plots.bar(group_x .- offset, P10_no;
     legend     = :topleft,
     framestyle = :box,
     size       = (700, 450),
+    # See figure_3.jl: `size` is inches x 100, so this is 7 x 4.5 in.  This was
+    # the weakest figure of the set - 700 px wide was only 100 dpi across a two
+    # column page - and 300 takes it to 2100 x 1350 px.
+    dpi        = 300,
     left_margin   = 8mm,
     bottom_margin = 6mm,
     right_margin  = 4mm,
@@ -66,5 +75,6 @@ Plots.bar!(fig, group_x .+ offset, P10_with;
     label     = "With insurance",
 )
 
-Plots.savefig(fig, "manuscript/figure_6.png")
+savefig_dpi(fig, "manuscript/figure_6.png"; dpi = 300)
+Plots.savefig(fig, "manuscript/figure_6.pdf")
 fig

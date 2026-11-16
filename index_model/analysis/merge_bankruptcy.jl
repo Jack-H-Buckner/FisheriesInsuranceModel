@@ -16,8 +16,8 @@
 ###
 ### Deliberately standalone: no model, no ValueFunctionIterations, no
 ### Plots, so it starts in under a second and can be rerun freely while
-### jobs are still landing.  It is also why the CSV reader below is
-### written out rather than imported.
+### jobs are still landing.  Its only include is csv_io.jl, which is
+### standalone for the same reason.
 ### Jack H. Buckner, Oregon State University, 2026
 ### Generated with Claude Code.
 #####################################################################
@@ -34,46 +34,14 @@ const ARM_ORDER = Dict("iso_premium" => 1, "full_coverage" => 2)
 
 
 #####################################################################
-### A minimal CSV reader
+### CSV
 #####################################################################
 #
-# Matches what setup.jl's write_csv produces: fields are quoted only when they
-# contain a comma, a quote or a newline, and an embedded quote is doubled.
-# Newlines inside quoted fields are not produced by write_csv and so are not
-# handled here; a field containing one would be an error, not a silent misparse.
+# split_csv_line lives in csv_io.jl, shared with write_csv so the reader and the
+# writer cannot disagree about quoting.  csv_io.jl is standalone, so including
+# it keeps this script's sub-second startup.
 
-function split_csv_line(line::AbstractString)
-    fields = String[]
-    buf = IOBuffer()
-    inquote = false
-    i = firstindex(line)
-    while i <= lastindex(line)
-        c = line[i]
-        if inquote
-            if c == '"'
-                # a doubled quote is a literal quote; a single one closes the field
-                if i < lastindex(line) && line[nextind(line, i)] == '"'
-                    write(buf, '"')
-                    i = nextind(line, i)
-                else
-                    inquote = false
-                end
-            else
-                write(buf, c)
-            end
-        elseif c == '"'
-            inquote = true
-        elseif c == ','
-            push!(fields, String(take!(buf)))
-        else
-            write(buf, c)
-        end
-        i = nextind(line, i)
-    end
-    inquote && throw(ArgumentError("unterminated quoted field in: $line"))
-    push!(fields, String(take!(buf)))
-    return fields
-end
+include(joinpath(@__DIR__, "csv_io.jl"))
 
 
 """

@@ -185,42 +185,24 @@ end
 
 
 #####################################################################
+### Number formatting for log tables
+#####################################################################
+#
+# Shared so that every script's console summary renders NaN the same way the
+# CSVs do - as NA - rather than one printing "NaN" and another "NA" for the
+# degenerate cases (a lambda_ratio with no events in one arm, say).
+
+fmt(x; digits = 4) = isnan(x) ? "NA" : string(round(x, digits = digits))
+ci(x, lo, hi; digits = 4) =
+    "$(fmt(x; digits = digits)) ($(fmt(lo; digits = digits)), $(fmt(hi; digits = digits)))"
+
+
+#####################################################################
 ### Tidy CSV output
 #####################################################################
 #
-# Written by hand rather than with CSV.jl: neither CSV nor DataFrames is in
-# Project.toml (analysis/table_4.jl uses both and so does not run under
-# --project=.), and the analysis tables are flat rows of numbers and short
-# strings.  Keeping the index model free of the extra dependencies means the
-# same environment that solves also analyses.
+# write_csv / read_csv live in csv_io.jl, which is standalone (no model, no
+# solver) so that merge_bankruptcy.jl and run_composite_figure.jl can read these
+# tables back without loading everything above.
 
-csv_field(x::AbstractString) =
-    any(c -> c in (',', '"', '\n', '\r'), x) ? '"' * replace(x, '"' => "\"\"") * '"' : x
-csv_field(x::Symbol)  = csv_field(string(x))
-csv_field(x::Bool)    = string(x)
-csv_field(x::Real)    = isnan(x) ? "NA" : string(x)   # NA reads as missing in R
-csv_field(x::Nothing) = "NA"
-csv_field(x)          = csv_field(string(x))
-
-"""
-    write_csv(path, rows; columns = keys(first(rows)))
-
-Write a vector of NamedTuples as a tidy CSV, creating the directory if needed.
-Every row must carry `columns`; a row missing one is an error rather than a
-silently blank cell.
-"""
-function write_csv(path::AbstractString, rows::AbstractVector; columns = nothing)
-    isempty(rows) && throw(ArgumentError("nothing to write to $path"))
-    cols = something(columns, collect(keys(first(rows))))
-    mkpath(dirname(abspath(path)))
-    open(path, "w") do io
-        println(io, join(csv_field.(cols), ","))
-        for r in rows
-            missing_cols = [c for c in cols if !haskey(r, c)]
-            isempty(missing_cols) || throw(ArgumentError(
-                "row is missing " * join(string.(missing_cols), ", ")))
-            println(io, join([csv_field(r[c]) for c in cols], ","))
-        end
-    end
-    return path
-end
+include(joinpath(@__DIR__, "csv_io.jl"))

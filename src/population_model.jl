@@ -68,10 +68,31 @@ function update_stock(s,X,p)
     if bt1 < 0 
         # The popualtion cannot go below zero, but it is possible
         # for the model to predit this if the current biomass is inconsistent with 
-        # lagged abundnce and mortlatiy rates. 
+        # lagged abundance and mortlatiy rates. 
         return [0.0, bt1-bt, Mt], ht, ft 
     end 
     return [log(bt1), log(bt1)-log(bt), Mt], ht, ft
 end
 
+
+# update the stock with a known mortaltiy rate 
+function update_stock(s,X,p,I)
+    mt = [p.m̄,p.m̲][I+1] # select moraltiayt rate base don event I
+    Xt,ΔXt,Mt_1=s # unpack states
+    bt = exp(Xt); bt_1 = exp(Xt-ΔXt)
+    rt,M_rng = X # unpack random variable
+    mt_1 = environment_mortaltiy(Mt_1,p.m̄,p.m̲)#,p.m̲)
+    ft = control_rule(bt,p.b_target,p.f_target,p.b_limit) # lagged fishing mortlatiy 
+    ft_1 = control_rule(bt_1,p.b_target,p.f_target,p.b_limit) # lagged fishing mortlatiy     
+    FR = beverton_holt(bt_1,p.b0,p.r0,p.z,rt) # recruitmemt
+    bt1 = deriso_schnute(bt,bt_1,mt,mt_1,ft,ft_1,p.g,FR) # pop model 
+    ht = baranov(bt,mt,ft)
+    if bt1 < 0 
+        # The popualtion cannot go below zero, but it is possible
+        # for the model to predit this if the current biomass is inconsistent with 
+        # lagged abundance and mortlatiy rates. 
+        return [0.0, bt1-bt, I+1], ht, ft
+    end
+    return [log(bt1), log(bt1)-log(bt), I+1], ht, ft
+end
 

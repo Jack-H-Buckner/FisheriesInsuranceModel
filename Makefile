@@ -83,6 +83,14 @@ all:
 	@echo ""
 	@echo "	make analysis_index_bankruptcy          the same run, but all in one "
 	@echo "	                                        process on this machine "
+	@echo ""
+	@echo "    precision ladder table + figures (was bankruptcy_analysis.ipynb): "
+	@echo ""
+	@echo "	make bankruptcy_figures_jobs            what would run, what is unsolved "
+	@echo "	make bankruptcy_figures_quick           plumbing check, ~2 min "
+	@echo "	make bankruptcy_figures                 13 scenarios at N=100, hours "
+	@echo "	                                        -> index_model/figures/*.csv,*.png "
+	@echo ""
 	@echo "	make test_index                         the index_model test suite "
 #
 #
@@ -350,6 +358,26 @@ analysis_index_bankruptcy_quick:
 
 analysis_index_bankruptcy_params:
 	julia --project=. --threads=$(IDX_THREADS) index_model/analysis/run_bankruptcy.jl ${PARAMS} $(BANKRUPTCY_ARGS)
+
+# The precision ladder table and the four figures built from it - the script
+# version of index_model/bankruptcy_analysis.ipynb.  N=100 over 13 scenarios,
+# so this is a several hour run; the CSV is rewritten after every scenario, and
+# `make bankruptcy_figures_quick` exercises the whole thing in a couple of
+# minutes first.  Add TAG=_cheaper to read a preliminary results tree.
+BANKRUPTCY_FIGURE_ARGS=
+
+bankruptcy_figures:
+	julia --project=. --threads=$(IDX_THREADS) index_model/analysis/run_bankruptcy_figures.jl $(BANKRUPTCY_FIGURE_ARGS)
+
+bankruptcy_figures_quick:
+	julia --project=. --threads=$(IDX_THREADS) index_model/analysis/run_bankruptcy_figures.jl --quick $(BANKRUPTCY_FIGURE_ARGS)
+
+# What would run, and which solves are missing, without solving anything.
+bankruptcy_figures_jobs:
+	@julia --project=. index_model/analysis/run_bankruptcy_figures.jl --dry-run $(BANKRUPTCY_FIGURE_ARGS)
+
+bankruptcy_figures_cheap:
+	julia --project=. --threads=$(IDX_THREADS) index_model/analysis/run_bankruptcy_figures.jl --tag=$(IDX_CHEAP_TAG) $(BANKRUPTCY_FIGURE_ARGS)
 
 # The preliminary counterpart: reads results_index/<scenario>_cheaper/ and
 # writes manuscript_index/index_bankruptcy_cheaper.csv, so it cannot overwrite

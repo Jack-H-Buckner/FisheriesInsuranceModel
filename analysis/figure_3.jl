@@ -4,6 +4,10 @@ using Plots.Measures: mm
 
 include("../src/model.jl")
 include("../src/plotting.jl")
+# savefig_dpi: savefig, then stamp the PNG pHYs chunk so the file reports the
+# resolution it was rendered at instead of defaulting to 72.  Guarded so that
+# running several figure scripts in one session does not redefine its consts.
+isdefined(Main, :savefig_dpi) || include("../index_model/analysis/png_dpi.jl")
 
 # Define state grid to set up problem
 bmax = 0.25; bmin = -3.5; Nb_grid = 12
@@ -177,11 +181,18 @@ fig = Plots.plot(row1..., row2..., row3...;
     layout = (3, 3),
     markersize = 3.0, linewidth = 0.75,
     size = (1400, 750),
+    # Plots treats `size` as px at a nominal 100 dpi, so this figure is 14 x 7.5
+    # inches and `dpi` only changes how finely it is rasterised: 300 -> 4200 x
+    # 2250 px.  Printed at a 7 in two column width that is 600 real dpi, so 300
+    # is already well clear of the 300 dpi floor without a 20 MB file.  The PDF
+    # page stays 1400 x 750 pt regardless and is vector.
+    dpi = 300,
     legend_foreground_color = :transparent,
     legendfontsize = 9, tickfontsize = 9,
     guidefontsize = 12, titlefontsize = 13,
     left_margin = 8mm, bottom_margin = 6mm,
     top_margin = 3mm, right_margin = 3mm)
 
-Plots.savefig(fig, "manuscript/figure_3.png")
+savefig_dpi(fig, "manuscript/figure_3.png"; dpi = 300)
+Plots.savefig(fig, "manuscript/figure_3.pdf")
 fig

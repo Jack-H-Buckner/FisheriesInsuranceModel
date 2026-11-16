@@ -401,8 +401,8 @@ end
 # Reporting
 # ------------------------------------------------------------------
 
-fmt(x; digits = 4) = isnan(x) ? "NA" : string(round(x, digits = digits))
-ci(x, lo, hi; digits = 4) = "$(fmt(x; digits = digits)) ($(fmt(lo; digits = digits)), $(fmt(hi; digits = digits)))"
+# fmt and ci live in setup.jl: the figure scripts format the same numbers for
+# their log tables, and only some of them include this file.
 
 function print_bankruptcy(res; io = stdout)
     println(io, "events (insurance / none): ", res.n_events, " / ",
