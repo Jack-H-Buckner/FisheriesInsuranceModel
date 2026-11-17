@@ -2,7 +2,8 @@
 b0 = 1.0 # biomass without fishing
 spr = 0.45 # target spawning potential ratio 
 by0 = 0.0 # biomass when fishing isn't profitable
-y_target = 1.0 # income at target biomass and fishing mortaltiy 
+y_target = 1.0 # average fishing income that the price is calibrated to (calibrate_price)
+c_e = 0.0 # cost per unit of fishing effort (μ_Ce); a parameter file can override it
 z = 0.75 # stock recruitment steepness
 σ_R = 0.75 # stock recruitment deviation SD
 b_target = 0.4 # target biomass

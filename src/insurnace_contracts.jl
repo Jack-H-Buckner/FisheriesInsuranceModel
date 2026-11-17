@@ -18,18 +18,29 @@ function index(s,X)
     return exp(s[1]) + X[1]
 end 
 
-# calims paments are proportional to the ammount the
+# claims paments are proportional to the ammount the
 # index of the stock (zt) falls below a threshold (zc)
-# given the  
-function index_insurance(zt,zc,ηt,η̄t)
-    ηt/η̄t*max(0,zc-zt)
+# The coverage level ϕ determines the proportionality constant
+# and is scaled so that the expected indemnity is one when ϕ = 1
+# the input El = max(0,zc-zt) enforces this scaling
+function index_insurance(zt,zc,ϕ)
+    ϕ*max(0,zc-zt)
 end 
 
-# calculate the price per exposure given the 
-# expected losses (El), fixed costs (cf), and variable costs / subsidies (cv)
-function price_per_exposure(EL,cf,cv)
+# The price per unit of exposure equals one plus variable costs like taxes
+# and commisions (c_v), and surplus capital costs (c_k). The capital costs are a 
+# complex funciton of the stock's abundance and other factors that determine a
+# market equilibrim for the insurance preiums
+function unit_premiums(s0, strike_, pars, K, n, Q_base, CV, α, τ,c_v; Nmc = 20_000, seed = 1)
+    c_k = capital_costs(s0, strike_, pars, K, n, Q_base, CV, α, τ; Nmc = Nmc, seed = seed)
+    return 1 + c_v + c_k
+end 
+
+# Coverage ϕ bought with premium spending η at price η̄ per unit of coverage.
+# The nugget keeps the division finite where the expected payout is ~0.
+function coverage(η̄,η)
     nugget = 1e-12
-    (max(nugget,EL)+cf)/(1-cv)
+    η/max(η̄,nugget)
 end 
 
 # set strike on the slope of the HCR 
@@ -40,23 +51,36 @@ function strike(s,p)
 end 
 
 
-# Calculate the expected losses over a grid of stock states
-# and fits an interpolation function to the grid.
-
-function iterpolate_losses(bt_grid,Δb_grid,mt_grid,X,p,index,strike)
-    El = zeros(length(bt_grid),length(Δb_grid),length(mt_grid))
+# Calculate the premium per unit of coverage over a grid of stock states and
+# fit an interpolation function to the grid.
+# The premium for coverage ϕ = 1 (payout max(0, zc - zt)) is the unit premium
+# (1 + c_v + c_k) times the expected payout El = E[max(0, zc - zt)].
+# The insurer parameters (K, n, Q_base, CV, α, τ, c_v) are read from `pars`
+# (see `add_insurer_parameters`). Returns an interpolation object called as
+# f(log stock, Δ log stock, mortality state).
+function iterpolate_premiums(bt_grid,Δb_grid,mt_grid,X,pars,index,strike; Nmc = 20_000, seed = 1)
+    η   = zeros(length(bt_grid),length(Δb_grid),length(mt_grid))
     Nbt = length(bt_grid); NΔb = length(Δb_grid); Nmt = length(mt_grid)
     for (i,j,k) in Iterators.product(1:Nbt,1:NΔb,1:Nmt)
         bt = bt_grid[i]; Δb = Δb_grid[j]; mt = mt_grid[k]
         s = [bt,Δb,mt]
-        Xt = X(vcat(ones(2),s),p) 
-        zt = mapslices(x -> index(update_stock(s,x[4:5],p)[1],x)[1], Xt.nodes, dims = 1) 
+        Xt = X(vcat(ones(2),s),pars) 
+        zt = mapslices(x -> index(update_stock_control_rule(s,x[4:5],pars)[1],x)[1], Xt.nodes, dims = 1) 
         zt = reshape(zt,length(Xt.weights))
-        zc = strike(s,p)
-        El[i,j,k] = sum(index_insurance.(zt,zc,1,1).*Xt.weights)
+        zc = strike(s,pars)
+        η1 = unit_premiums(s, zc, pars, pars.K, round(Int,pars.n), pars.Q_base, pars.CV,
+                           pars.α, pars.τ, pars.c_v; Nmc = Nmc, seed = seed)
+        El = sum(index_insurance.(zt,zc,1).*Xt.weights)
+        η[i,j,k] = η1 * El
     end
-    interp=interpolate(El,BSpline(Cubic(Line(OnGrid()))))
-    interp=Interpolations.scale(interp,bt_grid,Δb_grid,mt_grid)
-    interp= extrapolate(interp, Flat())
-    return interp
-end 
+    interp_η  = extrapolate(Interpolations.scale(interpolate(η, BSpline(Linear())),
+                                                 bt_grid,Δb_grid,mt_grid), Flat())
+    return interp_η
+end
+
+# Append the insurer capital-model parameters to the parameter set so they travel
+# with `p` (and `prob.p`). `insurer` is a NamedTuple with fields
+# K, n, Q_base, CV, α, τ, c_v (see parameters/insurer_capital_model.jl).
+function add_insurer_parameters(p, insurer)
+    return ComponentArray(p; pairs(insurer)...)
+end

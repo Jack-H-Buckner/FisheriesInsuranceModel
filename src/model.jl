@@ -14,8 +14,8 @@ using ValueFunctionIterations, Interpolations, StatsBase, Distributions
 
 include("population_model.jl")
 include("income_model.jl")
-include("derived_parameters.jl")
 include("random_variables.jl")
+include("insurer_capital_model.jl")
 include("insurnace_contracts.jl")
 
 # Simulate a trajectory from the biological model to help
@@ -32,7 +32,7 @@ function simulate_trajectory(p,X::ValueFunctionIterations.RandomVariableFunction
         ind = sample(1:length(Xt.weights),Weights(Xt.weights))
         states[:,t+1] = update_stock(states[:,t],Xt.nodes[4:5,ind],p)[1]
         m[t] = environment_mortaltiy(states[3,t+1],p.m̄,p.m̲)
-        f[t] = control_rule(exp(states[1,t+1]),p.b_target,p.f_target,p.b_limit)
+        f[t] = profit_max_effort(exp(states[1,t+1]),m[t],p)
         h[t] = baranov(exp(states[1,t+1]),m[t],f[t])
         y[t] = income(h[t], f[t], p.μ_P, p.μ_Ce)
     end 
@@ -49,7 +49,7 @@ function simulate_trajectory(p,X::ValueFunctionIterations.MCRandomVariable,T::In
         ind = sample(1:length(X.weights),Weights(X.weights))
         states[:,t+1] = update_stock(states[:,t],X.nodes[4:5,ind],p)[1]
         m[t] = environment_mortaltiy(states[3,t+1],p.m̄,p.m̲)
-        f[t] = control_rule(exp(states[1,t+1]),p.b_target,p.f_target,p.b_limit)
+        f[t] = profit_max_effort(exp(states[1,t+1]),m[t],p)
         h[t] = baranov(exp(states[1,t+1]),m[t],f[t])
         y[t] = income(h[t], f[t], p.μ_P, p.μ_Ce)
     end 
@@ -66,19 +66,26 @@ function simulate_trajectory(p,X,T)
 end 
 
 
-function init(action_grid,state_grid,δ,p,X,index,strike)
+# `insurer` holds the insurer capital-model parameters (K, n, Q_base, CV, α, τ, c_v),
+# see parameters/insurer_capital_model.jl. They are appended to `p`, so `prob.p`
+# carries them.
+# Premiums come from the capital-cost equilibrium, which is expensive, so they are
+# computed once on the same (log stock, Δ log stock, mortality) grid that the Bellman
+# equation is solved on. The solver only evaluates `F` at those grid points (the next
+# state is only passed to the interpolated value function), so the premiums it uses
+# are exact. The interpolation (linear, flat extrapolation) is only used off the grid,
+# e.g. when simulating. Returns the problem and the premium interpolation
+# η̄(log stock, Δ log stock, mortality state): the price of coverage ϕ = 1.
+function init(action_grid,state_grid,δ,p,X,index,strike; insurer = insurer_pars, Nmc = 20_000)
+    p = add_insurer_parameters(p, insurer)
 
     # unpack grid and set grid for mortlatity and bankruptcy 
     κ_grid,η_grid = action_grid
     s_grid,b_grid,Δb_grid = state_grid 
     m_grid = 1.0:2.0; Ib_grid = 1.0:2.0
 
-    # calculate expected losses
-    bmax = b_grid[end]+1; bmin = b_grid[1]-1; Nb_grid = 150
-    b_grid_EL = bmin:((bmax-bmin)/(Nb_grid-1)):bmax
-    Δbmax = Δb_grid[end]+0.5; Δbmin = Δb_grid[1]-0.5; NΔb_grid = 150
-    Δb_grid_EL = Δbmin:((Δbmax-Δbmin)/(NΔb_grid-1)):Δbmax
-    El = iterpolate_losses(b_grid_EL,Δb_grid_EL,m_grid,X,p,index,strike)
+    # calculate premiums on the Bellman grid
+    η̄_interp = iterpolate_premiums(b_grid,Δb_grid,m_grid,X,p,index,strike; Nmc = Nmc)
 
     # set up the action grid 
     k=0; action_grid = zeros(2,length(κ_grid)*length(η_grid))
@@ -127,15 +134,18 @@ function init(action_grid,state_grid,δ,p,X,index,strike)
             throw("κt+ηt must be less than st")
         end 
         Zeps,pt,c_et,Rt,mrng =  X
-        # calcualte premius 
+
+        # calcualte premius and coverage 
         zc = strike(s[3:5],p)
-        η̄ = price_per_exposure(El(Xt,ΔXt,Mt_1),p.cf,p.cv)
+        η̄ = η̄_interp(Xt,ΔXt,Mt_1)
+        ϕ = coverage(η̄,ηt)
+
         # update population
         s_next,ht,ft = update_stock(s[3:5],X[4:5],p)
         yt = income(ht, ft, pt, c_et)
 
         # calcualte insurance 
-        wt = index_insurance(index(s_next,X),zc,ηt,η̄)
+        wt = index_insurance(index(s_next,X),zc,ϕ)
 
         # update savings
         st1 = update_savings(st,κt, ηt, yt, wt, p.y0, p.k)
@@ -156,7 +166,7 @@ function init(action_grid,state_grid,δ,p,X,index,strike)
     V = ValueFunction(2,[[s_grid, b_grid, Δb_grid, 1.0:2.0],[0:1,0:1,0:1,1:2]])
     prob = DynamicProgram(V, R, F, p, u,  X, δ; solve = false)
 
-    return prob, El
+    return prob, η̄_interp
 
 end 
 

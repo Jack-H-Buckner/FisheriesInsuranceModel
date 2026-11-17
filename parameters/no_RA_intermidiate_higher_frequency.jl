@@ -14,7 +14,8 @@ g = exp(-0.162) # somatic growth rate
 m̄ = 0.2 # base line mortality rate  
 r0 = R0(b0,m̄,g) # recruitment without fishing
 f_target = f_b_target(z,r0,b0,b_target,m̄,g)
-μ_P = mean_price(b_target,f_target,y_target,m̄,by0 )
+μ_P = 1.0 # initial guess, calibrated below so that average income equals y_target
+μ_Ce = c_e # cost of effort, held fixed while the price is calibrated
 T = [0.95 0.5; 0.05 0.5]
 # Put paramters in a component array
 p = ComponentArray(
@@ -30,7 +31,7 @@ p = ComponentArray(
         σ_R = σ_R, # variance of recruitment deviations
         μZ = 0.0, # mean price for catch 
         μ_P = μ_P , # mean price for catch 
-        μ_Ce = cost_By0(μ_P,m̄,by0), # Mean cost of effort 
+        μ_Ce = μ_Ce, # Mean cost of effort 
         s̄ = s̄, # borrowing budget_constraint
         k = k, # inflation adjusted interest rate
         y0 = y0_no_RA, # fixed cost / alterantive income 
@@ -41,5 +42,7 @@ p = ComponentArray(
     )
 )
 
-
-
+# Calibrate the price: simulate the stock under profit maximizing effort and tune
+# μ_P so that average fishing income equals y_target (holding μ_Ce fixed).
+# Requires population_model.jl to be loaded before this file.
+p = calibrate_price(p; target = y_target)

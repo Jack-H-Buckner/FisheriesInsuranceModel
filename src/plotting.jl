@@ -62,8 +62,8 @@ function simulation(prob,El,Xmc,T;with_policy = false, s0 = nothing)
     wt = broadcast(t -> index_insurance(Zt[t],Zct[t],ηt[t],η̄t[t]), 1:(size(states)[2]-2)) # claims
     # wt = Zt .< Zct
     # wt3 = ηt .> 0
-    ft = broadcast(t -> control_rule(bt[t],p.b_target,p.f_target,p.b_limit),1:(size(states)[2]-1))
     mt = broadcast(t -> environment_mortaltiy(states[5,t],p.m̄,p.m̲),2:size(states)[2])
+    ft = broadcast(t -> profit_max_effort(bt[t],mt[t],p),1:(size(states)[2]-1))
     ht = broadcast(t -> baranov(bt[t],mt[t],ft[t]), 1:(size(states)[2]-1))
     pt = broadcast(t -> randos[2,t], 1:(size(states)[2]-1))
     c_et = broadcast(t -> randos[3,t], 1:(size(states)[2]-1))
