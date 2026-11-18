@@ -9,3 +9,5 @@ manuscript_index/parts/
 *-StdOut/
 *.pptx
 *.png
+# Julia environment resolution; differs between machines
+Manifest.toml
