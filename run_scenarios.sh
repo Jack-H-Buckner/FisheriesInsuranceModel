@@ -5,7 +5,7 @@
 # Logs:    scenario-<LH>-ins<0|1>-rel<0|1>-StdOut/  (in the directory you run this from)
 
 DIRPATH=/home/ceoas/bucknejo/github/
-NODE=amaterasu01
+NODE=kawashiro05
 PROCS=20
 
 # grids (same for every scenario so the results are comparable)
