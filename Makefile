@@ -18,10 +18,10 @@ NODE=amaterasu01
 PARAMS=RA_intermidiate
 #
 #
-NKAPPA=15
+NKAPPA=20
 #
 #
-NETA=10
+NETA=20
 #
 #
 NS=20

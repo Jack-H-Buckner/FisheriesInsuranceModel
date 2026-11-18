@@ -42,36 +42,43 @@ function plot_value_function(prob)
 end 
 
 
-function simulation(prob,El,Xmc,T;with_policy = false, s0 = nothing)
+# Simulate the solved model. Premiums along the path are computed directly from the full
+# insurer capital model (premium_per_coverage), using the quadrature random variables X.
+function simulation(prob,X,Xmc,T;with_policy = false, s0 = nothing)
     p = prob.p
     # Run simulation 
     states,actions,rewards,vals,randos=simulate(prob,Xmc,T,with_policy=with_policy, s0 = s0)
 
+    # Decode the discrete state (disc = 1 + Ib + 2*IM). `Ibt` keeps the old coding
+    # (1 = solvent, 2 = bankrupt) and `pop` is the population state
+    # (log stock, Δ log stock, mortality state 1 or 2) that the model functions expect.
+    decoded = [decode_discrete(d) for d in states[1,:]]
+    pop = vcat(states[3:4,:], [last(d) + 1.0 for d in decoded]')
+
     # Get variables and derived quantities
-    Ibt = states[1,:]
+    Ibt = [first(d) + 1.0 for d in decoded]
     st = exp.(states[2,1:(end-1)]).+p.s̄
-    bt = exp.(states[3,1:(end-1)]) 
+    bt = exp.(states[3,1:(end-1)])
     bt1 = exp.(states[3,2:end]) # leading Stock
     κt = actions[1,:] # consumption
     ηt = actions[2,:] # premium spending
-    Elt = broadcast(t->El(states[3,t],states[4,t],states[5,t]),1:(size(states)[2]-1)) # Expected losses 
-    η̄t = broadcast(t->price_per_exposure(Elt[t],p.cf,p.cv), 1:(size(states)[2]-1)) # insurance premiums
+    η̄t = broadcast(t->premium_per_coverage(pop[:,t],X,p,index,strike)[1], 1:(size(states)[2]-1)) # premium per unit of coverage
     Zϵt = broadcast(t -> randos[1,t], 1:(size(states)[2]-1))
-    Zt= broadcast(t -> index(states[3:5,t],0.0), 2:size(states)[2]) # index 
-    Zct = broadcast(t -> strike(states[3:5,t],p),1:(size(states)[2]-1)) # claims strike
-    wt = broadcast(t -> index_insurance(Zt[t],Zct[t],ηt[t],η̄t[t]), 1:(size(states)[2]-2)) # claims
+    Zt= broadcast(t -> index(pop[:,t],0.0), 2:size(states)[2]) # index
+    Zct = broadcast(t -> strike(pop[:,t],p),1:(size(states)[2]-1)) # claims strike
+    wt = broadcast(t -> index_insurance(Zt[t],Zct[t],coverage(η̄t[t],ηt[t])), 1:(size(states)[2]-2)) # claims
     # wt = Zt .< Zct
     # wt3 = ηt .> 0
-    mt = broadcast(t -> environment_mortaltiy(states[5,t],p.m̄,p.m̲),2:size(states)[2])
+    mt = broadcast(t -> environment_mortaltiy(pop[3,t],p.m̄,p.m̲),2:size(states)[2])
     ft = broadcast(t -> profit_max_effort(bt[t],mt[t],p),1:(size(states)[2]-1))
     ht = broadcast(t -> baranov(bt[t],mt[t],ft[t]), 1:(size(states)[2]-1))
     pt = broadcast(t -> randos[2,t], 1:(size(states)[2]-1))
     c_et = broadcast(t -> randos[3,t], 1:(size(states)[2]-1))
     yt = broadcast(t -> income(ht[t], ft[t], pt[t], c_et[t]),1:(size(states)[2]-1))
 
-    wt2 = st[2:end] .-update_savings.(st[1:(end-1)],κt[1:(end-1)], ηt[1:(end-1)], yt[1:(end-1)], 0.0, prob.p.y0, prob.p.k)
+    wt2 = st[2:end] .-update_savings.(st[1:(end-1)],κt[1:(end-1)], ηt[1:(end-1)], yt[1:(end-1)], 0.0, prob.p.y0, prob.p.ks, prob.p.kb)
 
-    return (Ibt = Ibt, st=st, bt=bt, bt1=bt1, κt=κt, ηt=ηt, Elt=Elt, η̄t=η̄t, Zt=Zt, Zct=Zct, wt=wt, ft=ft, mt=mt, ht=ht, pt=pt, c_et=c_et, yt=yt)
+    return (Ibt = Ibt, st=st, bt=bt, bt1=bt1, κt=κt, ηt=ηt, η̄t=η̄t, Zt=Zt, Zct=Zct, wt=wt, ft=ft, mt=mt, ht=ht, pt=pt, c_et=c_et, yt=yt)
 end
 
 function mask_to_vspans(x::AbstractVector, mask::AbstractVector{<:Integer})
@@ -110,13 +117,13 @@ function plot_simulation(x;T=length(x.wt),t0=1,max_USD = 4.0, max_Bt = 1.5)
     Plots.scatter!(xt[t0:T],x.yt[t0:T],  color = :grey, label = "Income   ", ylabel = "USD", alpha = 0.5)
     Plots.plot!(xt[t0:T],x.yt[t0:T], label = "",  color = :grey)
 
-    p3 = Plots.scatter(xt[t0:T],x.st[t0:T].-p.s̄.-x.ηt[t0:T].-x.κt[t0:T], label = string("Savings"), color = :black, ylabel = "USD")
-    Plots.plot!(xt[t0:T],x.st[t0:T].-p.s̄.-x.ηt[t0:T].-x.κt[t0:T], label = "", color = :black)
-    Plots.scatter!(xt[t0:T],x.ηt[t0:T], label = "Premiums", ylims = (-0.1,max_USD), color = :grey, alpha = 0.5)
+    p3 = Plots.scatter(xt[t0:T],x.st[t0:T].-x.ηt[t0:T].-x.κt[t0:T], label = string("Savings"), color = :black, ylabel = "USD")
+    Plots.plot!(xt[t0:T],x.st[t0:T].-x.ηt[t0:T].-x.κt[t0:T], label = "", color = :black)
+
+    p4 = Plots.scatter(xt[t0:T],x.ηt[t0:T], label = "Premiums", color = :grey, alpha = 0.5)
     Plots.plot!(xt[t0:T],x.ηt[t0:T], label = "",  color = :grey, xlabel = "Time")
 
-
-    Plots.plot(p1,p2,p3, layout = (3,1), markersize = 3.0, linewidth = 0.75, size = (600,400), 
+    Plots.plot(p1,p2,p3,p4, layout = (4,1), markersize = 3.0, linewidth = 0.75, size = (600,400), 
         legend=:outerright,legend_foreground_color=:transparent,legendfontsize = 10,
         tickfontsize = 10, guidefontsize = 14)
 
@@ -133,7 +140,8 @@ function plot_premiums(prob;Δblow = -0.5, Δbhigh = 0.5)
         for b in b_grid
             j += 1
             for k in 1:size(m_Δb_grid)[2]
-                P[i,j,k] = prob.P([1,s,b,m_Δb_grid[1,k],m_Δb_grid[2,k]])[2]
+                # state (disc, s, b, Δb): the mortality state (row 2 of m_Δb_grid) goes into disc
+                P[i,j,k] = prob.P([encode_discrete(0, m_Δb_grid[2,k] - 1), s, b, m_Δb_grid[1,k]])[2]
             end
         end
     end
@@ -155,13 +163,15 @@ function plot_value_function(prob;Δblow = -0.5, Δbhigh = 0.5)
     colors = cgrad(:viridis, length(s_grid))
     i = 0;plts = []
     for i in 1:size(m_Δb_grid)[2]
-        j = 0; mt = m_Δb_grid[1,i]; Δbt = m_Δb_grid[2,i] 
-        V = broadcast(b -> prob.V([1.0,s_grid[1],b,Δbt,mt]), b_grid)
+        # row 1 of m_Δb_grid is Δb and row 2 is the mortality state (the old code had these swapped)
+        j = 0; Δbt = m_Δb_grid[1,i]; mt = m_Δb_grid[2,i]
+        disc = encode_discrete(0, round(Int,mt) - 1) # solvent, mortality state mt
+        V = broadcast(b -> prob.V([disc,s_grid[1],b,Δbt]), b_grid)
         plt = Plots.plot(exp.(b_grid),V,color = colors[1], linewidth = 2, label = "", 
                         xlabel = "Stock", ylabel = "Utility present value", title = titles[i])
         for s in s_grid
             j +=1
-            V = broadcast(b -> prob.V([1.0,s,b,Δbt,mt]), b_grid)
+            V = broadcast(b -> prob.V([disc,s,b,Δbt]), b_grid)
             Plots.plot!(plt,exp.(b_grid),V, color = colors[round(Int,256*j/length(s_grid))],linewidth = 2,label = "")
         end 
         push!(plts,plt)
@@ -323,4 +333,29 @@ function plot_policy_gr(coverage_1, coverage_2, coverage_3, title;
         bottom_margin = 5Plots.mm,
         top_margin    = 2Plots.mm,
         right_margin  = 2Plots.mm)
+end
+# Insurance loading (premium / expected loss) as a function of the population's state.
+# η̄_interp is the interpolated premium per unit of coverage (second output of `init`),
+# which equals the unit premium (1 + c_v + c_k) times the expected payout
+# El = E[max(0, zc - zt)]. The loading is therefore η̄ / El. It is undefined where
+# El ≈ 0 (no payout expected), and those cells are left blank.
+function plot_loading(η̄_interp, b_grid, Δb_grid, X, pars, index, strike; mt_grid = 1.0:2.0, minEl = 1e-8)
+    L = fill(NaN, length(b_grid), length(Δb_grid), length(mt_grid))
+    for (i,j,k) in Iterators.product(1:length(b_grid),1:length(Δb_grid),1:length(mt_grid))
+        s  = [b_grid[i], Δb_grid[j], mt_grid[k]]
+        Xt = X(vcat(ones(2),s),pars)
+        zt = mapslices(x -> index(update_stock_control_rule(s,x[4:5],pars)[1],x)[1], Xt.nodes, dims = 1)
+        zt = reshape(zt,length(Xt.weights))
+        zc = strike(s,pars)
+        El = sum(index_insurance.(zt,zc,1).*Xt.weights)
+        if El > minEl
+            L[i,j,k] = η̄_interp(s[1],s[2],s[3]) / El
+        end
+    end
+    titles = ["typical M", "high M"]
+    clim = extrema(filter(!isnan, L))
+    plts = [Plots.heatmap(exp.(b_grid), Δb_grid, L[:,:,k]'; xlabel = "Stock", ylabel = "ΔB",
+                color = :viridis, clims = clim, title = "Loading; " * titles[k], titlefontsize = 11)
+            for k in 1:length(mt_grid)]
+    return Plots.plot(plts...; layout = (1,length(plts)), size = (1000,400), margin = 5Plots.mm)
 end

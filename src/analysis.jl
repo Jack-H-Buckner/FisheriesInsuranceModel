@@ -28,12 +28,31 @@ conditional on the high mortality event, which is what the published figure
 shows.
 """
 function markov_state_mask(nodes, s, T; state)
-    mt = round(Int, s[5])
+    mt = decode_discrete(s[1])[2] + 1   # lagged mortality state (1 = typical, 2 = high)
     mt in axes(T, 2) ||
         throw(ArgumentError("mortality state must index one of the $(size(T,2)) " *
-                            "columns of the transition matrix, got $(s[5])"))
+                            "columns of the transition matrix, got $mt"))
     return [ValueFunctionIterations.sample_markov_chain(mt, T, u) == state
             for u in view(nodes, 5, :)]
+end
+
+"""
+    stack_over_mortality(prob, f)
+
+The value function has a discrete state `disc = 1 + Ib + 2*IM` (see `encode_discrete` in
+model.jl), so solvent states with typical (`IM = 0`) and high (`IM = 1`) mortality live in
+separate levels with their own grids. This applies `f` to the 4 x n matrix of states
+(disc, s, b, Δb) of each solvent level, reshapes the length-n result onto that level's
+grid, and stacks the two levels along a 4th dimension. The result has the
+(savings, stock, Δ stock, mortality) layout that the old 5-element state produced.
+"""
+function stack_over_mortality(prob, f)
+    levels = [encode_discrete(0, IM) for IM in 0:1]
+    arrays = map(levels) do d
+        states = prob.V.states[:, prob.V.states[1,:] .== d]
+        reshape(f(states), prob.V.Bslines[d].dims...)
+    end
+    return cat(arrays...; dims = 4)
 end
 
 function coverage_levels(params; smax = log(2.0))
@@ -99,10 +118,6 @@ function coverage_levels(params; smax = log(2.0))
     ##################################
     δ = 0.95
     prob, El = init(action_grid,state_grid,δ,p,X,index,strike)
-    states = prob.V.states[:,prob.V.states[1,:].==1]
-
-    dims = prob.V.Bslines[1].dims
-
     ##################################
     ####  load in solutions       ####
     ##################################
@@ -111,11 +126,13 @@ function coverage_levels(params; smax = log(2.0))
     ##################################
     ####  calcaulte policy        ####
     ##################################
-
-    u_opt = ValueFunctionIterations.policy(states,prob.u,prob.X,prob.R,prob.F,prob.p,prob.δ,prob.V)
-    η_s = reshape(u_opt[2,:],dims...)
-    η̄_s =  mapslices(s -> price_per_exposure(El(s[3],s[4],s[5]),prob.p.cf,prob.p.cv),states,dims = 1)
-    η̄_s = reshape(η̄_s,dims...)
+    # each quantity is computed on the solvent states of both mortality levels
+    # and stacked into (s, b, Δb, mortality) arrays by stack_over_mortality
+    η_s = stack_over_mortality(prob, states ->
+        ValueFunctionIterations.policy(states,prob.u,prob.X,prob.R,prob.F,prob.p,prob.δ,prob.V)[2,:])
+    η̄_s = stack_over_mortality(prob, states -> vec(mapslices(
+        s -> price_per_exposure(El(s[3],s[4],decode_discrete(s[1])[2]+1),prob.p.cf,prob.p.cv),
+        states, dims = 1)))
     u = [1e-10,0.0]
     function insurance_claims(s)
         rv = prob.X(s,prob.p)
@@ -125,14 +142,14 @@ function coverage_levels(params; smax = log(2.0))
         weights = rv.weights[keep]
         weights = weights ./ sum(weights)
         nodes = rv.nodes[:,keep]
-        claim = mapslices(x -> index_insurance(index(prob.F(s,u,x,prob.p)[3:5],[0.0]),strike(s,prob.p),1,1), nodes, dims = 1)
+        # F returns (disc, s, log stock, Δ log stock); the index only uses log stock
+        claim = mapslices(x -> index_insurance(index(prob.F(s,u,x,prob.p)[3:4],[0.0]),strike(s,prob.p),1,1), nodes, dims = 1)
         sum(claim' .* weights )
-    end 
-    claims =  mapslices(s -> insurance_claims(s),states,dims = 1)
-    claims = reshape(claims,dims...)
+    end
+    claims = stack_over_mortality(prob, states -> vec(mapslices(insurance_claims, states, dims = 1)))
 
     return η_s, η̄_s, claims, state_grid
-end 
+end
 
 
 
@@ -200,10 +217,6 @@ function coverage_levels_variable_strike(params; smax = log(2.0))
     ##################################
     δ = 0.95
     prob, El = init(action_grid,state_grid,δ,p,X,index,strike)
-    states = prob.V.states[:,prob.V.states[1,:].==1]
-
-    dims = prob.V.Bslines[1].dims
-
     ##################################
     ####  load in solutions       ####
     ##################################
@@ -212,11 +225,13 @@ function coverage_levels_variable_strike(params; smax = log(2.0))
     ##################################
     ####  calcaulte policy        ####
     ##################################
-
-    u_opt = ValueFunctionIterations.policy(states,prob.u,prob.X,prob.R,prob.F,prob.p,prob.δ,prob.V)
-    η_s = reshape(u_opt[2,:],dims...)
-    η̄_s =  mapslices(s -> price_per_exposure(El(s[3],s[4],s[5]),prob.p.cf,prob.p.cv),states,dims = 1)
-    η̄_s = reshape(η̄_s,dims...)
+    # each quantity is computed on the solvent states of both mortality levels
+    # and stacked into (s, b, Δb, mortality) arrays by stack_over_mortality
+    η_s = stack_over_mortality(prob, states ->
+        ValueFunctionIterations.policy(states,prob.u,prob.X,prob.R,prob.F,prob.p,prob.δ,prob.V)[2,:])
+    η̄_s = stack_over_mortality(prob, states -> vec(mapslices(
+        s -> price_per_exposure(El(s[3],s[4],decode_discrete(s[1])[2]+1),prob.p.cf,prob.p.cv),
+        states, dims = 1)))
     u = [1e-10,0.0]
     function insurance_claims(s)
         rv = prob.X(s,prob.p)
@@ -226,11 +241,13 @@ function coverage_levels_variable_strike(params; smax = log(2.0))
         weights = rv.weights[keep]
         weights = weights ./ sum(weights)
         nodes = rv.nodes[:,keep]
-        claim = mapslices(x -> index_insurance(index(prob.F(s,u,x,prob.p)[3:5],[0.0]),strike(s[3:5],prob.p),1,1), nodes, dims = 1)
+        # the strike depends on the population state (log stock, Δ log stock, mortality state);
+        # F returns (disc, s, log stock, Δ log stock) and the index only uses log stock
+        pop_state = [s[3], s[4], decode_discrete(s[1])[2] + 1.0]
+        claim = mapslices(x -> index_insurance(index(prob.F(s,u,x,prob.p)[3:4],[0.0]),strike(pop_state,prob.p),1,1), nodes, dims = 1)
         sum(claim' .* weights )
-    end 
-    claims =  mapslices(s -> insurance_claims(s),states,dims = 1)
-    claims = reshape(claims,dims...)
+    end
+    claims = stack_over_mortality(prob, states -> vec(mapslices(insurance_claims, states, dims = 1)))
 
     return η_s, η̄_s, claims, state_grid
 end 
@@ -238,7 +255,18 @@ end
 
 function certianty_equivelent(prob,state)
     inverse_utility(prob.V(state)*(1-prob.δ),prob.p.γ)
-end 
+end
+
+"""
+    solvent_state(st, pop_state)
+
+Value function state (disc, log(savings - s̄), log stock, Δ log stock) for a solvent firm
+with log savings `st`, given a population state `pop_state = (log stock, Δ log stock,
+mortality state)` as returned by `simulate_trajectory`. The mortality state (1 or 2)
+is folded into the discrete index `disc` (see `encode_discrete` in model.jl).
+"""
+solvent_state(st, pop_state) =
+    [encode_discrete(0, round(Int, pop_state[3]) - 1), st, pop_state[1], pop_state[2]]
 
 function value_diffs(params)
     #params = "no_RA_short"
@@ -324,12 +352,12 @@ function value_diffs(params)
     load_solution(prob_insurance,"results/$params/sol.jld2")
     Random.seed!(123)
     sim_states, m, f, h, y = simulate_trajectory(p,Xmc,2000)
-    s0 = vcat([1.0,log(-1*p.s̄)],sim_states[:,rand(500:2000)])
+    s0 = solvent_state(log(-1*p.s̄), sim_states[:,rand(500:2000)])
 
     function average_diff(s,states)
         st = log(s - p.s̄)
-        V = mean(mapslices(s -> certianty_equivelent(prob_insurance,vcat([1.0,st],s)), states, dims = 1))
-        V_no_I = mean(mapslices(s -> certianty_equivelent(prob,vcat([1.0,st],s)), states, dims = 1))
+        V = mean(mapslices(s -> certianty_equivelent(prob_insurance,solvent_state(st,s)), states, dims = 1))
+        V_no_I = mean(mapslices(s -> certianty_equivelent(prob,solvent_state(st,s)), states, dims = 1))
         return (V - V_no_I)/V_no_I
     end
 
@@ -429,12 +457,12 @@ function value_diffs(params1, params2)
     load_solution(prob_insurance,"results/$params1/sol.jld2")
     Random.seed!(123)
     sim_states, m, f, h, y = simulate_trajectory(p,Xmc,2000)
-    s0 = vcat([1.0,log(-1*p.s̄)],sim_states[:,rand(500:2000)])
+    s0 = solvent_state(log(-1*p.s̄), sim_states[:,rand(500:2000)])
 
     function average_diff(s,states)
         st = log(s - p.s̄)
-        V = mean(mapslices(s -> certianty_equivelent(prob_insurance,vcat([1.0,st],s)), states, dims = 1))
-        V_no_I = mean(mapslices(s -> certianty_equivelent(prob,vcat([1.0,st],s)), states, dims = 1))
+        V = mean(mapslices(s -> certianty_equivelent(prob_insurance,solvent_state(st,s)), states, dims = 1))
+        V_no_I = mean(mapslices(s -> certianty_equivelent(prob,solvent_state(st,s)), states, dims = 1))
         return (V - V_no_I)/V_no_I
     end
 

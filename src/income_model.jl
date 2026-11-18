@@ -26,9 +26,12 @@ end
 # update savings - subtract premiums ηt and consumption κt
 # add income from fishing yt, insurance calims wt, and alt income / costs y0
 # savings are increased by a factor k to account for interest.
-function update_savings(st,κt, ηt, yt, wt, y0, k)
+function update_savings(st,κt, ηt, yt, wt, y0, ks, kb)
     s = savings(st,κt, ηt)
-    return (1+k)*s + yt + wt + y0
+    if s <0 
+        return (1+kb)*s + yt + wt + y0
+    end
+    return (1+ks)*s + yt + wt + y0
 end 
 
 # if saving sfall below the borrowing constaint at the end of the period the

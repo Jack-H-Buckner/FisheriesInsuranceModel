@@ -28,7 +28,7 @@ function simulate_trajectory(p,X::ValueFunctionIterations.RandomVariableFunction
     states[:,1] = [log(p.b_target),0.0,1.0]
     y = zeros(T); h = zeros(T); f = zeros(T); m = zeros(T)
     for t in 1:T
-        Xt = X(vcat([1.0,1.0],states[:,t]),p)
+        Xt = X(vcat([1.0,1.0],states[1:2,t]),p)
         ind = sample(1:length(Xt.weights),Weights(Xt.weights))
         states[:,t+1] = update_stock(states[:,t],Xt.nodes[4:5,ind],p)[1]
         m[t] = environment_mortaltiy(states[3,t+1],p.m̄,p.m̲)
@@ -66,6 +66,17 @@ function simulate_trajectory(p,X,T)
 end 
 
 
+# The discrete state is a single index 1..4 that encodes two binary indicators:
+#   Ib: 0 = not bankrupt,     1 = bankrupt
+#   IM: 0 = typical mortality, 1 = high mortality event (lagged mortality state = IM + 1)
+# index = 1 + Ib + 2*IM, so 1 = (0,0), 2 = (1,0), 3 = (0,1), 4 = (1,1).
+# Bankrupt states have an even index.
+encode_discrete(Ib,IM) = 1 + Int(Ib) + 2*Int(IM)
+function decode_discrete(disc)
+    d = round(Int,disc) - 1
+    return d % 2, d ÷ 2      # Ib, IM
+end
+
 # `insurer` holds the insurer capital-model parameters (K, n, Q_base, CV, α, τ, c_v),
 # see parameters/insurer_capital_model.jl. They are appended to `p`, so `prob.p`
 # carries them.
@@ -98,30 +109,34 @@ function init(action_grid,state_grid,δ,p,X,index,strike; insurer = insurer_pars
     # Scale action grid so actions dd up to th budget constraint
     # and if bankrupts don't both searching over actions 
     function u(s,p) 
-        Ib,st,bt,Δbt,mt=s
+        disc,st,bt,Δbt=s
+        Ib,IM = decode_discrete(disc)
         
         budget_constraint = exp(st)
         if p.y0 > 0.0
             budget_constraint += p.y0
         end
-        if (Ib > 1.0 )| (budget_constraint <= 0.0)
+        if (Ib == 1) | (budget_constraint <= 0.0)
             return [0.0; 0.0;;]
         end
         return budget_constraint .* action_grid
     end
 
-    # Define the full state update 
+    # Define the full state update.
+    # State: s = (disc, log(savings - s̄), log stock, Δ log stock), where `disc` encodes
+    # (Ib, IM) as described above; the lagged mortality state is IM + 1.
     function F(s,u,X,p)
 
-        Ib,st,Xt,ΔXt,Mt_1=s # Unpack states
-        st = exp(st)+p.s̄; bt = exp(Xt); bt_1 = exp(Xt-ΔXt)
-        if Ib > 1.0 # If bankrupt stay bankrupt skip remaining computations
-            return [2.0, 0.0, 0.0, 0.0, 1.0]
+        disc,st,Xt,ΔXt = s # Unpack states
+        Ib,IM = decode_discrete(disc)
+        st = exp(st)+p.s̄
+        bankrupt_state = encode_discrete(1,0) # all bankrupt states are equivalent
+        if Ib == 1 # If bankrupt stay bankrupt skip remaining computations
+            return [bankrupt_state, 0.0, 0.0, 0.0]
         end
 
-        if !(Mt_1 in [1.0,2.0]) # Must be either 1 or 2
-            throw("Mt_1 must be one or two")
-        end 
+        Mt_1 = IM + 1.0 # mortality state used by the population model (1 or 2)
+
         # Unpack actions
         budget_constraint = st - p.s̄
         if p.y0 > 0.0
@@ -136,34 +151,38 @@ function init(action_grid,state_grid,δ,p,X,index,strike; insurer = insurer_pars
         Zeps,pt,c_et,Rt,mrng =  X
 
         # calcualte premius and coverage 
-        zc = strike(s[3:5],p)
+        pop_state = [Xt,ΔXt,Mt_1]
+        zc = strike(pop_state,p)
         η̄ = η̄_interp(Xt,ΔXt,Mt_1)
         ϕ = coverage(η̄,ηt)
 
         # update population
-        s_next,ht,ft = update_stock(s[3:5],X[4:5],p)
+        s_next,ht,ft = update_stock(pop_state,X[4:5],p)
         yt = income(ht, ft, pt, c_et)
+        IM_next = round(Int,s_next[3]) - 1
 
         # calcualte insurance 
         wt = index_insurance(index(s_next,X),zc,ϕ)
 
         # update savings
-        st1 = update_savings(st,κt, ηt, yt, wt, p.y0, p.k)
+        st1 = update_savings(st,κt, ηt, yt, wt, p.y0, p.ks, p.kb)
 
         # if budget constaint is violated go bankrupt 
-        if bankrupt(st1,p.s̄,Ib)
-            return vcat([2.0,-6.0],s_next)
+        if bankrupt(st1,p.s̄,Ib+1.0)
+            return vcat([bankrupt_state,-6.0],s_next[1:2])
         end 
-        return vcat([1.0,log(st1-p.s̄)],s_next)  
+        return [encode_discrete(0,IM_next), log(st1-p.s̄), s_next[1], s_next[2]]
     end 
 
     function R(s,u,X,p)
-        Ib=s[1] # get bankruptcy
+        Ib,IM = decode_discrete(s[1]) # get bankruptcy
         κt=u[1] # get consumption
-        utility(κt,Ib,p.κ_bankrupt,p.γ)
+        utility(κt,Ib+1.0,p.κ_bankrupt,p.γ)
     end 
 
-    V = ValueFunction(2,[[s_grid, b_grid, Δb_grid, 1.0:2.0],[0:1,0:1,0:1,1:2]])
+    # one continuous grid set per discrete state; bankrupt states have dummy grids
+    grids = [decode_discrete(d)[1] == 1 ? [0:1,0:1,0:1] : [s_grid, b_grid, Δb_grid] for d in 1:4]
+    V = ValueFunction(4, grids)
     prob = DynamicProgram(V, R, F, p, u,  X, δ; solve = false)
 
     return prob, η̄_interp

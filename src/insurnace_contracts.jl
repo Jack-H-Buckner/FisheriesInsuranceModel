@@ -51,6 +51,21 @@ function strike(s,p)
 end 
 
 
+# Premium per unit of coverage (ϕ = 1) in a single state s = [log stock, Δ log stock, mortality state]:
+# the unit premium (1 + c_v + c_k) from the insurer capital model times the
+# expected payout El = E[max(0, zc - zt)] computed with the quadrature random variables X.
+# Returns (η̄, El); the loading is η̄/El = 1 + c_v + c_k.
+function premium_per_coverage(s,X,pars,index,strike; Nmc = 20_000, seed = 1)
+    Xt = X(vcat(ones(2),s),pars)
+    zt = mapslices(x -> index(update_stock_control_rule(s,x[4:5],pars)[1],x)[1], Xt.nodes, dims = 1)
+    zt = reshape(zt,length(Xt.weights))
+    zc = strike(s,pars)
+    η1 = unit_premiums(s, zc, pars, pars.K, round(Int,pars.n), pars.Q_base, pars.CV,
+                       pars.α, pars.τ, pars.c_v; Nmc = Nmc, seed = seed)
+    El = sum(index_insurance.(zt,zc,1).*Xt.weights)
+    return η1 * El, El
+end
+
 # Calculate the premium per unit of coverage over a grid of stock states and
 # fit an interpolation function to the grid.
 # The premium for coverage ϕ = 1 (payout max(0, zc - zt)) is the unit premium
@@ -62,16 +77,8 @@ function iterpolate_premiums(bt_grid,Δb_grid,mt_grid,X,pars,index,strike; Nmc =
     η   = zeros(length(bt_grid),length(Δb_grid),length(mt_grid))
     Nbt = length(bt_grid); NΔb = length(Δb_grid); Nmt = length(mt_grid)
     for (i,j,k) in Iterators.product(1:Nbt,1:NΔb,1:Nmt)
-        bt = bt_grid[i]; Δb = Δb_grid[j]; mt = mt_grid[k]
-        s = [bt,Δb,mt]
-        Xt = X(vcat(ones(2),s),pars) 
-        zt = mapslices(x -> index(update_stock_control_rule(s,x[4:5],pars)[1],x)[1], Xt.nodes, dims = 1) 
-        zt = reshape(zt,length(Xt.weights))
-        zc = strike(s,pars)
-        η1 = unit_premiums(s, zc, pars, pars.K, round(Int,pars.n), pars.Q_base, pars.CV,
-                           pars.α, pars.τ, pars.c_v; Nmc = Nmc, seed = seed)
-        El = sum(index_insurance.(zt,zc,1).*Xt.weights)
-        η[i,j,k] = η1 * El
+        s = [bt_grid[i],Δb_grid[j],mt_grid[k]]
+        η[i,j,k] = premium_per_coverage(s,X,pars,index,strike; Nmc = Nmc, seed = seed)[1]
     end
     interp_η  = extrapolate(Interpolations.scale(interpolate(η, BSpline(Linear())),
                                                  bt_grid,Δb_grid,mt_grid), Flat())

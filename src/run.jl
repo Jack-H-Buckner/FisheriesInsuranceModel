@@ -2,15 +2,15 @@ using Pkg
 Pkg.activate(".")
 Pkg.instantiate()
 using Plots
-params, Nκ, Nη, Ns_grid, Nb_grid, NΔb_grid, Nquad = ARGS
+params, Nκ, Nη, Ns_grid, Nb_grid, NΔb_grid, Nquad, maxiter = ARGS
 include("../src/model.jl"); include("../src/plotting.jl")
-include("../parameters/$params.jl")
+include("../parameters/V2/$params.jl"); include("../parameters/V2/insurer_capital_model.jl")
 
-if !isdir("results/$params")
-    mkdir("results/$params")
+if !isdir("results/V2/$params")
+    mkpath("results/V2/$params")
 end 
 
-function main(params,Nκ, Nη, Ns_grid, Nb_grid, NΔb_grid, Nquad)
+function main(params,Nκ, Nη, Ns_grid, Nb_grid, NΔb_grid, Nquad,maxiter)
     ###################################
     ####  Define random variables #####
     ###################################
@@ -38,13 +38,13 @@ function main(params,Nκ, Nη, Ns_grid, Nb_grid, NΔb_grid, Nquad)
     Δb_grid = Δbmin:((Δbmax-Δbmin)/(NΔb_grid-1)):Δbmax
     plt = Plots.scatter!(b_grid,[0.0])
     Plots.scatter!(zeros(length(Δb_grid)),Δb_grid)
-    savefig(plt,"results/$params/check_b_grid.png")
+    savefig(plt,"results/V2/$params/check_b_grid.png")
 
     # savings 
     smax = 2.5; smin = -4.0; Ns_grid = parse(Int,Ns_grid)
     s_grid = smin:((smax-smin)/(Ns_grid-1)):smax
     plt = Plots.scatter(exp.(s_grid),s_grid, label = "Savings", xlabel = "Savings", ylabel = "log savings")
-    savefig(plt,"results/$params/check_s_grid.png")
+    savefig(plt,"results/V2/$params/check_s_grid.png")
     state_grid = [s_grid,b_grid,Δb_grid]
 
     ###############################
@@ -52,7 +52,7 @@ function main(params,Nκ, Nη, Ns_grid, Nb_grid, NΔb_grid, Nquad)
     ###############################
     κmin = 0.01; κmax = 0.99; Nκ = parse(Int,Nκ)
     κ_grid = κmin:((κmax-κmin)/(Nκ-1)):κmax
-    ηmin = 0.0; ηmax=0.2; Nη = parse(Int,Nη)
+    ηmin = 0.0; ηmax = η_max; Nη = parse(Int,Nη)
     η_grid = ηmin:((ηmax-ηmin)/(Nη-1)):ηmax
     action_grid = [κ_grid,η_grid]
 
@@ -64,7 +64,7 @@ function main(params,Nκ, Nη, Ns_grid, Nb_grid, NΔb_grid, Nquad)
     end
     u_grid=u_grid[:,reshape(mapslices(sum,u_grid,dims = 1).<=1,length(κ_grid)*length(η_grid))]
     plt = Plots.scatter(u_grid[1,:],u_grid[2,:], xlabel = "Consumption", ylabel= "Premiums", label = "")
-    savefig(plt,"results/$params/check_u_grid.png")
+    savefig(plt,"results/V2/$params/check_u_grid.png")
 
 
     #######################################
@@ -82,24 +82,27 @@ function main(params,Nκ, Nη, Ns_grid, Nb_grid, NΔb_grid, Nquad)
     ##################################
     ####  Set up dynamic program  ####
     ##################################
-    δ = 0.95
+    δ = p.δ
     prob, El = init(action_grid,state_grid,δ,p,X,index,strike)
-    solve!(prob,maxiter = round(Int,5/(1-δ)))
-    save_solution(prob,"results/$params/sol.jld2")
+    ValueFunctionIterations.solve!(prob,maxiter = parse(Int,maxiter)) #round(Int,5/(1-δ)))
+    save_solution(prob,"results/V2/$params/sol.jld2")
 
 
     ##################################
     ####  Plot solutions.         ####
     ##################################
-    x=simulation(prob,El,Xmc,76;with_policy = false, s0 = [1.0,0.0,log(0.3),0.0,1.0])
-    plt = plot_simulation(x,max_USD=6.0,max_Bt=1.5,T = 75)
-    savefig(plt,"results/$params/simulation.png")
+    x=simulation(prob,X,Xmc,250;with_policy = false, s0 = [encode_discrete(0,0),0.0,log(0.3),0.0])
+    plt = plot_simulation(x,max_USD=6.0,max_Bt=1.5,T = 200)
+    savefig(plt,"results/V2/$params/simulation.png")
 
     plt = plot_premiums(prob)
-    savefig(plt,"results/$params/premiums.png")
+    savefig(plt,"results/V2/$params/premiums.png")
+
+    plt = plot_loading(El,b_grid,Δb_grid,X,prob.p,index,strike)
+    savefig(plt,"results/V2/$params/loading.png")
 
     plt = plot_value_function(prob)
-    savefig(plt,"results/$params/value_function.png")
+    savefig(plt,"results/V2/$params/value_function.png")
     
 end
-main(params,Nκ, Nη, Ns_grid, Nb_grid, NΔb_grid, Nquad)
+main(params,Nκ, Nη, Ns_grid, Nb_grid, NΔb_grid, Nquad,maxiter)
