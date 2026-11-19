@@ -10,10 +10,10 @@ PROCS=20
 
 # grids (same for every scenario so the results are comparable)
 NKAPPA=20
-NETA=20
+NETA=15
 NS=20
-NB=20
-NDELTAB=15
+NB=15
+NDELTAB=10
 NQUAD=10
 MAXITER=100
 

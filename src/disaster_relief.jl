@@ -13,7 +13,7 @@ function relief(ID,IM_next,IRrng,p)
         Rel = p.Relief
         ID = 0
     end 
-    if (IM_next == 1) 
+    if (IM_next == 1) && (ID==0)
         ID = 1
     end 
     return ID, Rel
