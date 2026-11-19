@@ -145,7 +145,7 @@ function init(action_grid,state_grid,δ,p,X,index,strike; insurer = insurer_pars
         κt,ηt=u 
         if (κt <=0) | (ηt < 0) # Check consumption is positive
             throw("consmption and premiums must be positive")
-        elseif (κt+ηt) > budget_constraint
+        elseif (κt+ηt) > budget_constraint*(1 + 1e-10) # tolerance: u() and F() round the budget differently
             throw("κt+ηt must be less than st")
         end 
         Zeps,pt,c_et,Rt,mrng =  X
